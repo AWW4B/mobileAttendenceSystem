@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ section.id }} · Attendance Portal{% endblock %}
+{% block content %}
+<p><a href="/dashboard">← All sections</a></p>
+<h1>{{ section.id }} · {{ section.title }}</h1>
+<p class="muted">{{ roster | length }} students · {{ sessions | length }} sessions ·
+  <a href="/sections/{{ section.id }}/export.csv">Export CSV</a></p>
+
+{% if not sessions %}
+<div class="card">No attendance recorded yet. Take it from the mobile app.</div>
+{% else %}
+<p class="muted">Click a mark to correct it. Corrections show a dashed outline.</p>
+<div class="table-wrap">
+<table>
+  <thead><tr>
+    <th>Roll no</th><th>Name</th><th>Overall</th>
+    {% for cs in sessions %}<th title="{{ cs.session_id }}">{{ cs.taken_at | when }}<br>{{ cs.present }}/{{ cs.total }}</th>{% endfor %}
+  </tr></thead>
+  <tbody>
+  {% for s in roster %}
+  <tr>
+    <td>{{ s.roll_no }}</td>
+    <td>{{ s.name }}</td>
+    <td>{% if stats[s.roll_no] is not none %}{{ stats[s.roll_no] }}%{% else %}—{% endif %}</td>
+    {% for cs in sessions %}
+      {% set m = matrix.get((s.roll_no, cs.session_id)) %}
+      <td>
+      {% if m %}
+        <form class="inline" method="post"
+              action="/sections/{{ section.id }}/sessions/{{ cs.session_id }}/students/{{ s.roll_no }}">
+          <input type="hidden" name="status" value="{{ 'absent' if m.status == 'present' else 'present' }}">
+          <button class="mark {{ m.status }} {{ 'manual' if m.source == 'manual' else '' }}"
+                  title="Mark {{ 'absent' if m.status == 'present' else 'present' }}">
+            {{ 'P' if m.status == 'present' else 'A' }}</button>
+        </form>
+      {% else %}<span class="muted">—</span>{% endif %}
+      </td>
+    {% endfor %}
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% endblock %}
