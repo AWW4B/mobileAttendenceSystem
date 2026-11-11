@@ -1,0 +1,31 @@
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Runtime data: keys, databases, TLS certs, audit logs. Never commit.
+server/data/
+data/
+
+# Model weights (fetched with enrollment/fetch_models.py)
+models/*.onnx
+models/*.zip
+
+# Student photos used for enrollment. Never commit.
+enrollment/photos/
+photos/
+
+# Android / Gradle
+.gradle/
+build/
+local.properties
+captures/
+*.apk
+*.aab

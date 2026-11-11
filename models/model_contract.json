@@ -1,0 +1,50 @@
+{
+  "contract_version": 1,
+  "note": "The enrollment script (laptop) and the Android app (phone) MUST follow this exactly, or stored templates will not match live faces.",
+  "detector": {
+    "enrollment": "YuNet face_detection_yunet_2023mar.onnx via OpenCV FaceDetectorYN",
+    "phone": "ML Kit face detection (landmark mode ALL), or the same YuNet ONNX via ONNX Runtime for exact parity",
+    "min_score": 0.8,
+    "min_face_px": 60
+  },
+  "alignment": {
+    "method": "closed-form least-squares similarity (rotation + uniform scale + translation, no reflection); a = sum(x*u + y*v)/sum(x^2+y^2), b = sum(x*v - y*u)/sum(x^2+y^2) on centred points; bilinear sampling",
+    "output_size": [112, 112],
+    "landmark_order": [
+      "eye on the IMAGE-left (subject's right eye)",
+      "eye on the IMAGE-right (subject's left eye)",
+      "nose tip",
+      "mouth corner on the IMAGE-left",
+      "mouth corner on the IMAGE-right"
+    ],
+    "reference_landmarks": [
+      [38.2946, 51.6963],
+      [73.5318, 51.5014],
+      [56.0252, 71.7366],
+      [41.5493, 92.3655],
+      [70.7299, 92.2041]
+    ],
+    "border": "constant 0"
+  },
+  "embedder": {
+    "file": "w600k_mbf.onnx",
+    "family": "MobileFaceNet trained on WebFace600K (InsightFace buffalo_sc pack)",
+    "license": "InsightFace pretrained models: non-commercial research use only",
+    "input": "float32 tensor [1, 3, 112, 112], NCHW, RGB channel order",
+    "normalize": "(pixel - 127.5) / 127.5",
+    "output_dim": 512,
+    "postprocess": "L2-normalise"
+  },
+  "template": {
+    "enrollment": "mean of per-photo embeddings, then L2-normalise",
+    "storage": "MEC applies the cancelable transform t[i] = signs[i] * e[permutation[i]] then AES-GCM encrypts",
+    "wire_format": "base64 of float32 little-endian"
+  },
+  "matching": {
+    "metric": "cosine similarity (dot product of L2-normalised, identically transformed vectors)",
+    "assignment": "one-to-one: each face matches at most one student and each student at most one face (greedy by highest score)",
+    "accept_threshold": 0.40,
+    "review_band": [0.30, 0.40],
+    "calibrate": "Re-tune both numbers on your own class photos; report FAR/FRR in the research write-up."
+  }
+}
