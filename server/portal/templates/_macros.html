@@ -1,0 +1,19 @@
+{% macro icon(name, cls="icon") -%}
+<svg class="{{ cls }}" aria-hidden="true" focusable="false"><use href="#i-{{ name }}"/></svg>
+{%- endmacro %}
+
+{% macro chip(kind, text) -%}
+<span class="chip {{ kind }}">{{ text }}</span>
+{%- endmacro %}
+
+{# Initials from a display name, skipping honorifics such as "Dr." #}
+{% macro initials(name) -%}
+{%- set ns = namespace(out="") -%}
+{%- for part in name.split() if not part.endswith(".") and ns.out|length < 2 -%}{%- set ns.out = ns.out ~ part[0]|upper -%}{%- endfor -%}
+{{ ns.out or "?" }}
+{%- endmacro %}
+
+{# Page-level note shown on modules whose backend is not connected yet #}
+{% macro preview_note(text="This module is showing sample data. It will switch to live records when its backend is connected.") -%}
+<div class="note" role="note">{{ icon("info") }}<span>{{ text }}</span><span class="chip plain">Sample data</span></div>
+{%- endmacro %}

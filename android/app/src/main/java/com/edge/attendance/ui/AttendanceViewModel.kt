@@ -34,6 +34,9 @@ import java.io.IOException
 
 enum class Screen { LOGIN, SECTIONS, CAPTURE, REVIEW, DONE }
 
+/** Bottom-navigation destinations, shown while [Screen.SECTIONS] is active. */
+enum class Tab { SECTIONS, UPLOADS, DEVICE }
+
 enum class Status { PRESENT, REVIEW, ABSENT, NOT_ENROLLED }
 
 data class StudentRow(
@@ -61,6 +64,15 @@ data class UiState(
     val students: List<StudentRow> = emptyList(),
     val sessionExpiresAt: Long = 0,
     val result: String? = null,
+    // Presentation state added with the redesign
+    val tab: Tab = Tab.SECTIONS,
+    val pendingUploads: Int = 0,
+    val deviceLabel: String = "",
+    val deviceRegistered: Boolean = false,
+    val submittedPresent: Int = 0,
+    val submittedAbsent: Int = 0,
+    val submittedPhotos: Int = 0,
+    val uploaded: Boolean = true,
 )
 
 /**
@@ -139,8 +151,10 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
         ensureDeviceRegistered(resp.access_token)
         val sections = portal().sections(resp.access_token)
         _state.update {
-            it.copy(screen = Screen.SECTIONS, teacherName = resp.name, sections = sections,
-                portalUrl = prefs.portalUrl, mecUrl = prefs.mecUrl, lastUsername = username)
+            it.copy(screen = Screen.SECTIONS, tab = Tab.SECTIONS, teacherName = resp.name, sections = sections,
+                portalUrl = prefs.portalUrl, mecUrl = prefs.mecUrl, lastUsername = username,
+                pendingUploads = receipts.all().size, deviceLabel = Build.MODEL ?: "This phone",
+                deviceRegistered = prefs.deviceId(username, prefs.mecUrl) != null)
         }
         ReceiptUploadWorker.schedule(getApplication()) // flush anything left from last time
     }
@@ -159,7 +173,42 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshSections() = launchOp {
         val token = accessToken ?: return@launchOp
-        _state.update { it.copy(sections = portal().sections(token)) }
+        _state.update { it.copy(sections = portal().sections(token), pendingUploads = receipts.all().size) }
+    }
+
+    // ---- navigation & presentation state --------------------------------------
+    fun setTab(tab: Tab) {
+        _state.update { it.copy(tab = tab, pendingUploads = receipts.all().size) }
+    }
+
+    /** System Back / predictive back: step out of the current flow screen. */
+    fun back() {
+        val s = _state.value
+        when (s.screen) {
+            Screen.CAPTURE -> cancelSession()
+            Screen.REVIEW -> backToCapture()
+            Screen.DONE -> backToSections()
+            Screen.SECTIONS -> if (s.tab != Tab.SECTIONS) setTab(Tab.SECTIONS)
+            Screen.LOGIN -> Unit
+        }
+    }
+
+    fun retryUploads() {
+        ReceiptUploadWorker.schedule(getApplication())
+        showMessage("Retrying upload")
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(4000)
+            _state.update { it.copy(pendingUploads = receipts.all().size) }
+        }
+    }
+
+    fun saveServers(portalUrl: String, mecUrl: String) {
+        prefs.portalUrl = portalUrl
+        prefs.mecUrl = mecUrl
+        _state.update {
+            it.copy(portalUrl = prefs.portalUrl, mecUrl = prefs.mecUrl,
+                deviceRegistered = prefs.deviceId(username, prefs.mecUrl) != null)
+        }
     }
 
     // ---- session -----------------------------------------------------------
@@ -253,16 +302,23 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
         val deviceId = prefs.deviceId(username, prefs.mecUrl) ?: error("device not registered")
         val present = rows().filter { it.markedPresent }.map { it.pseudonym }
         val resp = mec().submit(deviceId, s.session_id, s.nonce, present, metrics())
+        var uploaded = true
         val forwarded = try {
             val r = portal().postReceipt(resp.receipt)
             "Recorded on the portal: ${r.present} present, ${r.absent} absent."
         } catch (e: IOException) {
+            uploaded = false
             receipts.add(resp.receipt)
             ReceiptUploadWorker.schedule(getApplication())
             "Verified by the MEC (${present.size} present). The portal is unreachable, so the result is queued and will upload automatically."
         }
+        val absentCount = roster.size - present.size
+        val photoCount = timings.photos
         endSession()
-        _state.update { it.copy(screen = Screen.DONE, result = forwarded) }
+        _state.update {
+            it.copy(screen = Screen.DONE, result = forwarded, submittedPresent = present.size, submittedAbsent = absentCount,
+                submittedPhotos = photoCount, uploaded = uploaded, pendingUploads = receipts.all().size)
+        }
     }
 
     private fun metrics(): JsonObject = buildJsonObject {

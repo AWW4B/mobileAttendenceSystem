@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% set nav = "sessions" %}
+{% block title %}{{ s.section }} · {{ s.date }} · {{ super() }}{% endblock %}
+{% block crumbs %}
+  <li><a href="/sessions">Sessions</a></li>
+  <li><span aria-current="page">{{ s.section }}, {{ s.date }}</span></li>
+{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ s.title }}</h1>
+    <p><span class="mono">{{ s.section }}</span> · {{ s.date }}, {{ s.time }} · {{ s.present }} of {{ s.total }} present</p>
+  </div>
+  <div class="page-actions"><a class="btn" href="/sessions">{{ m.icon("arrow-left", "icon icon-sm") }}All sessions</a></div>
+</div>
+<div class="stack">
+  {{ m.preview_note() }}
+  <div class="two-col">
+    <section class="panel" aria-label="Results">
+      <div class="toolbar">
+        <div class="input-wrap">{{ m.icon("search") }}<input class="input" type="search" placeholder="Search name or roll number" aria-label="Search students" data-filter-table="results" autocomplete="off"></div>
+        <span class="muted small grow" style="text-align:right">Showing {{ results|length }} of {{ s.total }} in this preview</span>
+      </div>
+      <div class="table-wrap">
+        <table class="table" id="results">
+          <thead><tr><th scope="col">Roll no</th><th scope="col">Name</th><th scope="col">Result</th><th scope="col" class="num">Match</th><th scope="col">Source</th></tr></thead>
+          <tbody>
+          {% for r in results %}
+            <tr>
+              <td class="id">{{ r.roll }}</td><td class="name">{{ r.name }}</td>
+              <td>{{ m.chip(r.result, r.result|capitalize) }}</td>
+              <td class="num">{{ "%.2f"|format(r.score) if r.score is not none else "—" }}</td>
+              <td>{% if r.source == "manual" %}{{ m.chip("review plain", "Corrected by you") }}{% else %}<span class="muted">Face match</span>{% endif %}</td>
+            </tr>
+          {% endfor %}
+            <tr class="empty-row is-hidden"><td colspan="5">No students match your search.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel" aria-label="Session details" style="align-self:start">
+      <div class="panel-head"><h2>Session</h2>{{ m.chip("present" if s.status == "Recorded" else "review", s.status) }}</div>
+      <dl class="kv panel-body">
+        <dt>Device</dt><dd>{{ s.device }}</dd>
+        <dt>Photos taken</dt><dd class="mono">{{ s.photos }}</dd>
+        <dt>Faces detected</dt><dd class="mono">{{ s.faces }}</dd>
+        <dt>Matched</dt><dd class="mono">{{ s.matched }}</dd>
+        <dt>Corrections</dt><dd class="mono">{{ s.corrections }}</dd>
+        <dt>Verified by</dt><dd>Campus server<div class="xs muted mono">receipt {{ s.id }}-7f3a91c2</div></dd>
+        <dt>Images stored</dt><dd>None. Photos were discarded on the phone.</dd>
+      </dl>
+    </section>
+  </div>
+</div>
+{% endblock %}
