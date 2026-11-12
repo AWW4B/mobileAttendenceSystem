@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% set nav = "settings" %}
+{% block title %}Settings · {{ super() }}{% endblock %}
+{% block crumbs %}<li><span aria-current="page">Settings</span></li>{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Settings</h1>
+    <p>How recognition decides, what counts as low attendance, and how long records are kept.</p>
+  </div>
+</div>
+<div class="stack" style="max-width: 760px">
+  {{ m.preview_note("These controls work, but changes are not saved until the backend is connected.") }}
+
+  <section class="panel" aria-labelledby="rec-h">
+    <div class="panel-head"><div><h2 id="rec-h">Recognition</h2><p>Re-tune both values on your own class photos. See Evaluation for the trade-off.</p></div></div>
+    <div class="panel-body stack">
+      <div class="field">
+        <label for="accept">Accept threshold: <span class="mono" id="accept-v">0.40</span></label>
+        <input type="range" id="accept" min="0.20" max="0.80" step="0.01" value="0.40" data-out="accept-v" data-digits="2" aria-describedby="accept-h">
+        <span class="hint" id="accept-h">Matches at or above this are marked present. Higher is stricter.</span>
+      </div>
+      <div class="field">
+        <label for="review">Review threshold: <span class="mono" id="review-v">0.30</span></label>
+        <input type="range" id="review" min="0.10" max="0.60" step="0.01" value="0.30" data-out="review-v" data-digits="2" aria-describedby="review-h">
+        <span class="hint" id="review-h">Matches between this and the accept threshold are shown for you to confirm.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="pol-h">
+    <div class="panel-head"><div><h2 id="pol-h">Attendance policy</h2></div></div>
+    <div class="panel-body stack">
+      <div class="field">
+        <label for="low">Flag students below</label>
+        <div class="input-wrap" style="max-width: 200px"><input class="input" id="low" type="number" min="0" max="100" value="75" inputmode="numeric" style="padding-right: 30px"><span class="muted" style="position:absolute;right:10px;top:50%;transform:translateY(-50%)">%</span></div>
+        <span class="hint">Shown in red on the attendance register.</span>
+      </div>
+      <label class="note" style="cursor:pointer;align-items:center"><span style="flex:1"><strong>Count corrected marks</strong><br><span class="muted">Include your manual corrections when calculating attendance.</span></span><input class="switch" type="checkbox" role="switch" checked></label>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="data-h">
+    <div class="panel-head"><div><h2 id="data-h">Data and privacy</h2></div></div>
+    <div class="panel-body stack">
+      <div class="field" style="max-width: 280px">
+        <label for="retain">Keep session records for</label>
+        <select class="input" id="retain"><option>One academic year</option><option selected>Two academic years</option><option>Until I delete them</option></select>
+      </div>
+      <dl class="kv">
+        <dt>Photos</dt><dd>Processed on your phone and discarded. Never uploaded.</dd>
+        <dt>Face templates</dt><dd>Encrypted on the campus server, linked to a random identifier.</dd>
+        <dt>This portal holds</dt><dd>Names, roll numbers and attendance marks.</dd>
+      </dl>
+    </div>
+  </section>
+
+  <div class="page-actions"><button class="btn btn-primary" type="button" data-preview-save>Save changes</button></div>
+</div>
+{% endblock %}

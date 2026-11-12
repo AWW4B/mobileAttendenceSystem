@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Window background before Compose draws: matches the "paper" surface so there is no flash. -->
+    <color name="paper">#FFF6F7F5</color>
+</resources>

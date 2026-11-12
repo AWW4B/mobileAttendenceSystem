@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% set nav = "evaluation" %}
+{% block title %}Evaluation · {{ super() }}{% endblock %}
+{% block crumbs %}<li><span aria-current="page">Evaluation</span></li>{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Evaluation</h1>
+    <p>Recognition accuracy and on-device timing, measured across your capture sessions.</p>
+  </div>
+  <div class="page-actions"><button class="btn" type="button" disabled title="Not available in this preview">{{ m.icon("download", "icon icon-sm") }}Export measurements</button></div>
+</div>
+<div class="stack">
+  {{ m.preview_note() }}
+  <section class="panel stats" aria-label="Headline measurements">
+    <div class="stat"><div class="k">Sessions measured</div><div class="v">37</div></div>
+    <div class="stat"><div class="k">Accept threshold</div><div class="v">{{ "%.2f"|format(accept) }}</div></div>
+    <div class="stat"><div class="k">False accepts</div><div class="v">0.9<small>%</small></div></div>
+    <div class="stat"><div class="k">False rejects</div><div class="v">3.4<small>%</small></div></div>
+  </section>
+
+  <section class="panel" aria-labelledby="err-h">
+    <div class="panel-head">
+      <div><h2 id="err-h">Errors against match threshold</h2><p>Raising the threshold removes false accepts and adds false rejects. Matches between {{ "%.2f"|format(0.30) }} and {{ "%.2f"|format(accept) }} are sent for review.</p></div>
+      <div><span class="key"><i class="k1"></i>False rejects</span><span class="key"><i class="k2"></i>False accepts</span></div>
+    </div>
+    <div class="panel-body">
+      <svg class="chart" viewBox="0 0 {{ err.W }} {{ err.H }}" role="img" aria-label="False accept and false reject rates for match thresholds from 0.20 to 0.70. At the 0.40 accept threshold, false accepts are 0.9 percent and false rejects are 3.4 percent.">
+        <rect class="band" x="{{ err.band_x }}" y="{{ err.T }}" width="{{ err.band_w }}" height="{{ err.ph }}"/>
+        {% for t in err.yticks %}
+          <line class="grid" x1="{{ err.L }}" x2="{{ err.L + err.pw }}" y1="{{ t.y }}" y2="{{ t.y }}"/>
+          <text x="{{ err.L - 8 }}" y="{{ t.y + 4 }}" text-anchor="end">{{ t.label }}</text>
+        {% endfor %}
+        <line class="axis" x1="{{ err.L }}" x2="{{ err.L + err.pw }}" y1="{{ err.bottom }}" y2="{{ err.bottom }}"/>
+        {% for t in err.xticks %}<text x="{{ t.x }}" y="{{ err.bottom + 18 }}" text-anchor="middle">{{ t.label }}</text>{% endfor %}
+        <text x="{{ err.L + err.pw / 2 }}" y="{{ err.H - 4 }}" text-anchor="middle">match threshold (cosine similarity)</text>
+        <text x="{{ err.band_x + 6 }}" y="{{ err.T + 14 }}">review band</text>
+        <line class="marker" x1="{{ err.accept_x }}" x2="{{ err.accept_x }}" y1="{{ err.T }}" y2="{{ err.bottom }}"/>
+        <text x="{{ err.accept_x + 6 }}" y="{{ err.T + 14 }}">accept {{ "%.2f"|format(accept) }}</text>
+        <polyline class="line s-1" points="{{ err.frr }}"/>
+        <polyline class="line s-2" points="{{ err.far }}"/>
+        {% for c in err.cols %}{% if c.cx == err.accept_x %}
+          <circle class="dot s-1" cx="{{ c.cx }}" cy="{{ c.frr_y }}" r="4.5"/><circle class="dot s-2" cx="{{ c.cx }}" cy="{{ c.far_y }}" r="4.5"/>
+        {% endif %}{% endfor %}
+        <text class="lbl" x="{{ err.frr_label[0] }}" y="{{ err.frr_label[1] }}">False rejects</text>
+        <text class="lbl" x="{{ err.far_label[0] }}" y="{{ err.far_label[1] }}">False accepts</text>
+        {% for c in err.cols %}<rect class="col" x="{{ c.x }}" y="{{ err.T }}" width="{{ c.w }}" height="{{ err.ph }}" data-tip="{{ c.tip }}" tabindex="0"/>{% endfor %}
+      </svg>
+    </div>
+    <details class="data-view">
+      <summary>View as table</summary>
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th scope="col" class="num">Threshold</th><th scope="col" class="num">False rejects</th><th scope="col" class="num">False accepts</th></tr></thead>
+        <tbody>{% for t in thresholds %}<tr><td class="num">{{ "%.2f"|format(t) }}</td><td class="num">{{ "%.1f"|format(frr[loop.index0]) }}%</td><td class="num">{{ "%.1f"|format(far[loop.index0]) }}%</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </details>
+  </section>
+
+  <section class="panel" aria-labelledby="lat-h">
+    <div class="panel-head">
+      <div><h2 id="lat-h">Time per photo, by phone</h2><p>Each photo holds about 14 faces. Embedding is the cost that grows on slower phones.</p></div>
+      <div><span class="key"><i class="k1"></i>Detect</span><span class="key"><i class="k2"></i>Embed</span><span class="key"><i class="k3"></i>Match</span></div>
+    </div>
+    <div class="panel-body">
+      <svg class="chart" viewBox="0 0 {{ lat.W }} {{ lat.H }}" role="img" aria-label="Milliseconds per photo split into detection, embedding and matching for three phones.">
+        {% for t in lat.ticks %}
+          <line class="grid" x1="{{ t.x }}" x2="{{ t.x }}" y1="0" y2="{{ lat.gridh }}"/>
+          <text x="{{ t.x }}" y="{{ lat.axis_y + 16 }}" text-anchor="middle">{{ t.label }}</text>
+        {% endfor %}
+        <text x="{{ lat.W }}" y="{{ lat.axis_y + 16 }}" text-anchor="end">ms</text>
+        {% for r in lat.rows %}
+          <text class="lbl" x="{{ lat.L - 12 }}" y="{{ r.y + 15 }}" text-anchor="end">{{ r.device }}</text>
+          {% for s in r.segs %}<rect class="bar bar-{{ s.n }}" x="{{ s.x }}" y="{{ r.y }}" width="{{ s.w }}" height="22" rx="2" data-tip="{{ s.tip }}" tabindex="0"/>{% endfor %}
+          <text x="{{ r.end }}" y="{{ r.y + 15 }}">{{ r.total }} ms</text>
+        {% endfor %}
+      </svg>
+    </div>
+    <details class="data-view">
+      <summary>View as table</summary>
+      <div class="table-wrap"><table class="table">
+        <thead><tr><th scope="col">Phone</th><th scope="col" class="num">Detect</th><th scope="col" class="num">Embed</th><th scope="col" class="num">Match</th><th scope="col" class="num">Total</th></tr></thead>
+        <tbody>{% for device, d, e, mt in latency_rows %}<tr><td class="name">{{ device }}</td><td class="num">{{ d }} ms</td><td class="num">{{ e }} ms</td><td class="num">{{ mt }} ms</td><td class="num">{{ d + e + mt }} ms</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </details>
+  </section>
+
+  <section class="panel" aria-labelledby="place-h">
+    <div class="panel-head"><div><h2 id="place-h">Where recognition runs</h2><p>The same session measured with matching on the phone, on the campus server, and in the cloud.</p></div></div>
+    <div class="table-wrap">
+      <table class="table">
+        <thead><tr><th scope="col">Placement</th><th scope="col" class="num">Median time</th><th scope="col">Sent off the phone</th><th scope="col" class="num">Battery</th><th scope="col">What is exposed</th></tr></thead>
+        <tbody>
+        {% for name, p50, sent, mah, note in placement %}
+          <tr><td class="name">{{ name }}</td><td class="num">{{ p50 }} ms</td><td>{{ sent }}</td><td class="num">{{ mah }} mAh</td><td class="muted">{{ note }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

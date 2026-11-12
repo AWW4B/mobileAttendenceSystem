@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% set nav = "security" %}
+{% block title %}Security · {{ super() }}{% endblock %}
+{% block crumbs %}<li><span aria-current="page">Security</span></li>{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Security</h1>
+    <p>The phones allowed to take attendance for you, and a record of what they did.</p>
+  </div>
+</div>
+<div class="stack">
+  {{ m.preview_note() }}
+  <div>
+    <div class="tabs" role="tablist" aria-label="Security">
+      <button role="tab" id="tab-devices" aria-selected="true" aria-controls="panel-devices">Devices</button>
+      <button role="tab" id="tab-activity" aria-selected="false" aria-controls="panel-activity" tabindex="-1">Activity</button>
+    </div>
+
+    <section class="panel" id="panel-devices" role="tabpanel" aria-labelledby="tab-devices">
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th scope="col">Device</th><th scope="col">Registered</th><th scope="col">Last used</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+          <tbody>
+          {% for d in devices %}
+            <tr>
+              <td class="name">{{ m.icon("device", "icon icon-sm") }} {{ d.label }}</td>
+              <td class="muted">{{ d.registered }}</td><td class="muted">{{ d.last }}</td>
+              <td>{{ m.chip("present", "Active") if d.active else m.chip("plain", "Revoked") }}</td>
+              <td class="right">{% if d.active %}<button class="btn btn-sm btn-danger" type="button" data-open-dialog="revoke" data-fill="{{ d.label }}">Revoke</button>{% endif %}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="legend"><span>{{ m.icon("info", "icon icon-sm") }} Revoke a phone as soon as it is lost. It can no longer open sessions or submit attendance.</span></div>
+    </section>
+
+    <section class="panel" id="panel-activity" role="tabpanel" aria-labelledby="tab-activity" hidden>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th scope="col">When</th><th scope="col">Event</th><th scope="col">Detail</th><th scope="col">Outcome</th></tr></thead>
+          <tbody>
+          {% for when, event, detail, outcome in activity %}
+            <tr>
+              <td class="nowrap muted">{{ when }}</td><td class="name nowrap">{{ event }}</td><td>{{ detail }}</td>
+              <td>{{ m.chip("present", "Accepted") if outcome == "accepted" else m.chip("absent", "Rejected") }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="legend"><span>{{ m.icon("lock", "icon icon-sm") }} You see only your own devices and sessions.</span></div>
+    </section>
+  </div>
+</div>
+
+<dialog class="dlg" id="revoke" aria-labelledby="revoke-t">
+  <div class="dlg-body">
+    <h2 id="revoke-t">Revoke <span data-fill>this device</span>?</h2>
+    <p>The phone will no longer be able to open sessions or submit attendance. You can register it again by signing in on it.</p>
+  </div>
+  <div class="dlg-foot">
+    <button class="btn" type="button" data-close-dialog>Cancel</button>
+    <button class="btn btn-danger" type="button" data-confirm-toast="Preview only. {target} was not revoked.">Revoke device</button>
+  </div>
+</dialog>
+{% endblock %}

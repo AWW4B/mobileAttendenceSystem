@@ -14,6 +14,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Form, Header, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
@@ -22,6 +23,7 @@ from common.admin import require_admin
 from common.keys import load_or_create_admin_token, mec_public_key, portal_signing_key
 from common.settings import MEC_ISSUER, PORTAL_ISSUER, Settings
 
+from .preview import build_router as build_preview_router
 from .store import PortalStore
 
 COOKIE = "portal_session"
@@ -78,6 +80,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Attendance portal", version="0.2.0")
     app.state.store = store
     app.state.settings = settings
+    # Web UI assets (css, js, fonts). Presentation only.
+    app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 
     def issue_access(teacher_id: int) -> str:
         token, _ = tokens.issue(signing_key, issuer=PORTAL_ISSUER, typ="access", sub=str(teacher_id),
@@ -261,5 +265,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                  if (s["roll_no"], cs["session_id"]) in matrix else "") for cs in sessions])
         return Response(buf.getvalue(), media_type="text/csv",
                         headers={"Content-Disposition": f'attachment; filename="{section_id}-attendance.csv"'})
+
+    # Web UI for modules with no backend yet (sample data; see preview.py).
+    app.include_router(build_preview_router(teacher_from_cookie, store, templates))
 
     return app

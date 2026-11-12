@@ -1,45 +1,112 @@
 {% extends "base.html" %}
-{% block title %}{{ section.id }} · Attendance Portal{% endblock %}
+{% import "_macros.html" as m %}
+{% set nav = "overview" %}
+{% set LOW = 75 %}
+{% block title %}{{ section.id }} · {{ super() }}{% endblock %}
+{% block crumbs %}
+  <li><a href="/dashboard">Overview</a></li>
+  <li><span aria-current="page">{{ section.id }}</span></li>
+{% endblock %}
 {% block content %}
-<p><a href="/dashboard">← All sections</a></p>
-<h1>{{ section.id }} · {{ section.title }}</h1>
-<p class="muted">{{ roster | length }} students · {{ sessions | length }} sessions ·
-  <a href="/sections/{{ section.id }}/export.csv">Export CSV</a></p>
+{# Summary and per-row flags, computed once so the page is correct before any script runs #}
+{% set ns = namespace(sum=0, n=0, low=0, manual=0) %}
+{% for s in roster %}
+  {% set p = stats[s.roll_no] %}
+  {% if p is not none %}{% set ns.sum = ns.sum + p %}{% set ns.n = ns.n + 1 %}{% if p < LOW %}{% set ns.low = ns.low + 1 %}{% endif %}{% endif %}
+{% endfor %}
+{% set last = sessions[-1] if sessions else none %}
+
+<div class="page-head">
+  <div>
+    <h1>{{ section.title }}</h1>
+    <p><span class="mono">{{ section.id }}</span> · {{ roster|length }} students · {{ sessions|length }} {{ "session" if sessions|length == 1 else "sessions" }}</p>
+  </div>
+  <div class="page-actions">
+    {% if sessions %}<a class="btn" href="/sections/{{ section.id }}/export.csv">{{ m.icon("download", "icon icon-sm") }}Export CSV</a>{% endif %}
+  </div>
+</div>
 
 {% if not sessions %}
-<div class="card">No attendance recorded yet. Take it from the mobile app.</div>
+<section class="panel">
+  <div class="empty">
+    {{ m.icon("camera") }}
+    <h2>No attendance recorded for this section yet</h2>
+    <p>Attendance is taken in the mobile app. Once you submit a session, it appears here as a register you can review and correct.</p>
+    <ol>
+      <li>Open the app and choose <strong>{{ section.id }}</strong>.</li>
+      <li>Photograph the class, then review who was recognised.</li>
+      <li>Submit. The campus server verifies it and the register fills in.</li>
+    </ol>
+  </div>
+</section>
 {% else %}
-<p class="muted">Click a mark to correct it. Corrections show a dashed outline.</p>
-<div class="table-wrap">
-<table>
-  <thead><tr>
-    <th>Roll no</th><th>Name</th><th>Overall</th>
-    {% for cs in sessions %}<th title="{{ cs.session_id }}">{{ cs.taken_at | when }}<br>{{ cs.present }}/{{ cs.total }}</th>{% endfor %}
-  </tr></thead>
-  <tbody>
-  {% for s in roster %}
-  <tr>
-    <td>{{ s.roll_no }}</td>
-    <td>{{ s.name }}</td>
-    <td>{% if stats[s.roll_no] is not none %}{{ stats[s.roll_no] }}%{% else %}—{% endif %}</td>
-    {% for cs in sessions %}
-      {% set m = matrix.get((s.roll_no, cs.session_id)) %}
-      <td>
-      {% if m %}
-        <form class="inline" method="post"
-              action="/sections/{{ section.id }}/sessions/{{ cs.session_id }}/students/{{ s.roll_no }}">
-          <input type="hidden" name="status" value="{{ 'absent' if m.status == 'present' else 'present' }}">
-          <button class="mark {{ m.status }} {{ 'manual' if m.source == 'manual' else '' }}"
-                  title="Mark {{ 'absent' if m.status == 'present' else 'present' }}">
-            {{ 'P' if m.status == 'present' else 'A' }}</button>
-        </form>
-      {% else %}<span class="muted">—</span>{% endif %}
-      </td>
-    {% endfor %}
-  </tr>
-  {% endfor %}
-  </tbody>
-</table>
+<div class="stack">
+  <section class="panel stats" aria-label="Summary">
+    <div class="stat"><div class="k">Average attendance</div><div class="v"><span id="stat-avg">{{ (ns.sum / ns.n)|round|int if ns.n else "—" }}</span><small>%</small></div></div>
+    <div class="stat"><div class="k">Below {{ LOW }}%</div><div class="v"><span id="stat-low">{{ ns.low }}</span><small>of {{ roster|length }}</small></div></div>
+    <div class="stat"><div class="k">Sessions held</div><div class="v">{{ sessions|length }}</div></div>
+    <div class="stat"><div class="k">Latest session</div><div class="v"><span id="stat-last">{{ last.present }}/{{ last.total }}</span><small>present</small></div></div>
+  </section>
+
+  <section class="panel" aria-label="Attendance register">
+    <div class="toolbar">
+      <div class="input-wrap">{{ m.icon("search") }}<input class="input" id="register-search" type="search" placeholder="Search name or roll number" aria-label="Search students" autocomplete="off"></div>
+      <div class="seg" role="group" aria-label="Filter students">
+        <button type="button" data-filter="all" aria-pressed="true">All<span class="count">{{ roster|length }}</span></button>
+        <button type="button" data-filter="low" aria-pressed="false">Below {{ LOW }}%<span class="count">{{ ns.low }}</span></button>
+        <button type="button" data-filter="manual" aria-pressed="false">Corrected<span class="count">0</span></button>
+      </div>
+    </div>
+    <div class="table-wrap" style="max-height: calc(100dvh - 372px); min-height: 280px;">
+      <table class="table register" id="register" data-section="{{ section.id }}" data-threshold="{{ LOW }}">
+        <thead><tr>
+          <th scope="col" class="sticky c-roll" data-sort="roll" aria-sort="ascending"><button type="button">Roll no</button></th>
+          <th scope="col" class="sticky c-name" data-sort="name"><button type="button">Name</button></th>
+          <th scope="col" class="sticky c-overall num" data-sort="pct"><button type="button">Overall</button></th>
+          {% for cs in sessions %}
+            {% set parts = (cs.taken_at | when).split(" ") %}
+            <th scope="col" class="session" data-session="{{ cs.session_id }}" data-date="{{ parts[0]|int }} {{ parts[1] }}" title="{{ cs.taken_at | when }}">
+              <span class="d">{{ parts[0]|int }} {{ parts[1] }}</span>
+              <span class="t">{{ parts[3] }}</span>
+              <span class="t n">{{ cs.present }}/{{ cs.total }}</span>
+            </th>
+          {% endfor %}
+        </tr></thead>
+        <tbody>
+        {% for s in roster %}
+          {% set p = stats[s.roll_no] %}
+          {% set mn = namespace(manual=0) %}
+          {% for cs in sessions %}{% set mk = matrix.get((s.roll_no, cs.session_id)) %}{% if mk and mk.source == "manual" %}{% set mn.manual = 1 %}{% endif %}{% endfor %}
+          <tr data-roll="{{ s.roll_no }}" data-name="{{ s.name|lower }}" data-display="{{ s.name }}"
+              data-pct="{{ p if p is not none else '' }}" data-low="{{ 1 if p is not none and p < LOW else 0 }}" data-manual="{{ mn.manual }}">
+            <td class="sticky c-roll id">{{ s.roll_no }}</td>
+            <td class="sticky c-name name">{{ s.name }}</td>
+            <td class="sticky c-overall num"><span class="pct{% if p is not none and p < LOW %} low{% endif %}">{{ p ~ "%" if p is not none else "—" }}</span></td>
+            {% for cs in sessions %}
+              {% set mk = matrix.get((s.roll_no, cs.session_id)) %}
+              <td class="cell">
+              {% if mk %}
+                {# Accessible names and tooltips are added by portal.js; keeping them out of the markup keeps big classes light. #}
+                <form method="post" action="/sections/{{ section.id }}/sessions/{{ cs.session_id }}/students/{{ s.roll_no }}" style="display:inline;margin:0">
+                  <input type="hidden" name="status" value="{{ 'absent' if mk.status == 'present' else 'present' }}">
+                  <button class="mark {{ mk.status }}{{ ' manual' if mk.source == 'manual' else '' }}" data-session="{{ cs.session_id }}" data-status="{{ mk.status }}" data-source="{{ mk.source }}">{{ 'P' if mk.status == 'present' else 'A' }}</button>
+                </form>
+              {% else %}<span class="muted">—</span>{% endif %}
+              </td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+          <tr class="empty-row is-hidden"><td colspan="{{ 3 + sessions|length }}">No students match this filter.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="legend" aria-label="Legend">
+      <span><span class="mark present">P</span> Present</span>
+      <span><span class="mark absent">A</span> Absent</span>
+      <span><span class="mark present manual">P</span> Corrected by you</span>
+      <span>Select a mark to change it. Below {{ LOW }}% is flagged.</span>
+    </div>
+  </section>
 </div>
 {% endif %}
 {% endblock %}

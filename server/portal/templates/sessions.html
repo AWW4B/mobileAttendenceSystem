@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% set nav = "sessions" %}
+{% block title %}Sessions · {{ super() }}{% endblock %}
+{% block crumbs %}<li><span aria-current="page">Sessions</span></li>{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Sessions</h1>
+    <p>Every class you have photographed in the mobile app, newest first.</p>
+  </div>
+</div>
+<div class="stack">
+  {{ m.preview_note() }}
+  <section class="panel" aria-label="Sessions">
+    <div class="toolbar">
+      <div class="input-wrap">{{ m.icon("search") }}<input class="input" type="search" placeholder="Search section, date or device" aria-label="Search sessions" data-filter-table="sessions-table" autocomplete="off"></div>
+    </div>
+    <div class="table-wrap">
+      <table class="table" id="sessions-table">
+        <thead><tr>
+          <th scope="col">Taken</th><th scope="col">Section</th><th scope="col">Device</th>
+          <th scope="col" class="num">Faces</th><th scope="col" class="num">Matched</th><th scope="col" class="num">Present</th><th scope="col" class="num">Corrected</th><th scope="col">Status</th>
+        </tr></thead>
+        <tbody>
+        {% for s in sessions %}
+          <tr>
+            <td class="nowrap"><a class="row-link" href="/sessions/{{ s.id }}">{{ s.date }}</a><div class="xs muted mono">{{ s.time }}</div></td>
+            <td><span class="mono">{{ s.section }}</span><div class="xs muted">{{ s.title }}</div></td>
+            <td>{{ s.device }}</td>
+            <td class="num">{{ s.faces }}</td><td class="num">{{ s.matched }}</td><td class="num">{{ s.present }}/{{ s.total }}</td><td class="num">{{ s.corrections }}</td>
+            <td>{{ m.chip("present" if s.status == "Recorded" else "review", s.status) }}</td>
+          </tr>
+        {% endfor %}
+          <tr class="empty-row is-hidden"><td colspan="8">No sessions match your search.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

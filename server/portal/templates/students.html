@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% set nav = "students" %}
+{% block title %}Students · {{ super() }}{% endblock %}
+{% block crumbs %}<li><span aria-current="page">Students</span></li>{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Students</h1>
+    <p>Who is on your rolls, and whether each student has a face template on file for recognition.</p>
+  </div>
+  <div class="page-actions">
+    <button class="btn" type="button" data-open-dialog="enroll-help">{{ m.icon("info", "icon icon-sm") }}How enrollment works</button>
+    <button class="btn" type="button" disabled title="Not available in this preview">{{ m.icon("upload", "icon icon-sm") }}Import roster</button>
+  </div>
+</div>
+<div class="stack">
+  {{ m.preview_note() }}
+  <section class="panel stats" aria-label="Enrollment summary">
+    <div class="stat"><div class="k">Students</div><div class="v">{{ students|length }}</div></div>
+    <div class="stat"><div class="k">Face template on file</div><div class="v">{{ counts.enrolled + counts.redo }}</div></div>
+    <div class="stat"><div class="k">Missing a template</div><div class="v">{{ counts.missing }}</div></div>
+    <div class="stat"><div class="k">Re-enrollment suggested</div><div class="v">{{ counts.redo }}</div></div>
+  </section>
+  <section class="panel" aria-label="Students">
+    <div class="toolbar">
+      <div class="input-wrap">{{ m.icon("search") }}<input class="input" type="search" placeholder="Search name, roll number or section" aria-label="Search students" data-filter-table="students-table" autocomplete="off"></div>
+    </div>
+    <div class="table-wrap">
+      <table class="table" id="students-table">
+        <thead><tr><th scope="col">Roll no</th><th scope="col">Name</th><th scope="col">Section</th><th scope="col">Face template</th><th scope="col">Enrolled</th><th scope="col" class="num">Attendance</th></tr></thead>
+        <tbody>
+        {% for s in students %}
+          <tr>
+            <td class="id">{{ s.roll }}</td><td class="name">{{ s.name }}</td><td class="id">{{ s.section }}</td>
+            <td>{% if s.state == "enrolled" %}{{ m.chip("present", "Enrolled") }}{% elif s.state == "missing" %}{{ m.chip("absent", "Missing") }}{% else %}{{ m.chip("review", "Re-enroll suggested") }}{% endif %}</td>
+            <td class="muted">{{ s.enrolled or "—" }}</td>
+            <td class="num"><span class="pct{% if s.pct < 75 %} low{% endif %}">{{ s.pct }}%</span></td>
+          </tr>
+        {% endfor %}
+          <tr class="empty-row is-hidden"><td colspan="6">No students match your search.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<dialog class="dlg" id="enroll-help" aria-labelledby="enroll-help-t">
+  <div class="dlg-body">
+    <h2 id="enroll-help-t">How enrollment works</h2>
+    <p>A student's face is turned into a template of 512 numbers on the campus laptop, using the same model the phone uses.</p>
+    <p>The photos are then deleted. The template is encrypted on the campus server and linked to a random identifier, never to a name. Face images are never stored in this portal.</p>
+  </div>
+  <div class="dlg-foot"><button class="btn btn-primary" type="button" data-close-dialog>Got it</button></div>
+</dialog>
+{% endblock %}

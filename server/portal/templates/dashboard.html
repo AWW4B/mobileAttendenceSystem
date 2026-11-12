@@ -1,18 +1,49 @@
 {% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% set nav = "overview" %}
+{% block title %}Overview · {{ super() }}{% endblock %}
+{% block crumbs %}<li><span aria-current="page">Overview</span></li>{% endblock %}
 {% block content %}
-<h1>Your sections</h1>
-<p class="muted">Attendance arrives here after the campus MEC verifies a capture from the mobile app.</p>
-{% if sections %}
-<div class="grid">
-  {% for s in sections %}
-  <a class="card" href="/sections/{{ s.id }}">
-    <strong>{{ s.id }}</strong> · {{ s.title }}<br>
-    <span class="muted">{{ s.student_count }} students · {{ s.session_count }} sessions</span><br>
-    <span class="muted">Last taken: {{ s.last_taken_at | when }}</span>
-  </a>
-  {% endfor %}
+<div class="page-head">
+  <div>
+    <h1>Overview</h1>
+    <p>Attendance you take in the mobile app arrives here once the campus server has verified it.</p>
+  </div>
 </div>
+
+{% if sections %}
+<section class="panel" aria-labelledby="sections-h">
+  <div class="panel-head">
+    <h2 id="sections-h">Your sections</h2>
+    <span class="muted small">{{ sections|length }} {{ "section" if sections|length == 1 else "sections" }}</span>
+  </div>
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr>
+        <th scope="col">Section</th><th scope="col" class="num">Students</th><th scope="col" class="num">Sessions</th><th scope="col">Last taken</th><th scope="col"><span class="sr-only">Open</span></th>
+      </tr></thead>
+      <tbody>
+      {% for s in sections %}
+        <tr>
+          <td><a class="row-link" href="/sections/{{ s.id }}">{{ s.title }}</a><div class="id xs muted mono">{{ s.id }}</div></td>
+          <td class="num">{{ s.student_count }}</td>
+          <td class="num">{{ s.session_count }}</td>
+          <td>{% if s.last_taken_at %}<span class="nowrap">{{ s.last_taken_at | when }}</span>{% else %}{{ m.chip("plain", "No sessions yet") }}{% endif %}</td>
+          <td class="right"><a class="btn btn-sm btn-quiet" href="/sections/{{ s.id }}" aria-label="Open {{ s.title }}">Open register{{ m.icon("chevron-right", "icon icon-sm") }}</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% else %}
-<div class="card">No sections yet. Add one with <code>python -m portal.cli add-section</code>.</div>
+<section class="panel">
+  <div class="empty">
+    {{ m.icon("sections") }}
+    <h2>No sections assigned yet</h2>
+    <p>Sections are assigned by an administrator. Once yours appear here, you can take attendance in the mobile app and review it on this page.</p>
+    <p class="muted small">Administrators: <code>python -m portal.cli add-section</code></p>
+  </div>
+</section>
 {% endif %}
 {% endblock %}
