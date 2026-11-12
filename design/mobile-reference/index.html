@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rollbook mobile design reference</title>
+<link rel="stylesheet" href="mobile.css">
+</head>
+<body>
+<div id="icons" hidden></div>
+<div class="stage" id="stage"></div>
+<script>
+/* Design reference for the Android app. Open via a local web server from the repo root:
+     python -m http.server 8012
+     http://127.0.0.1:8012/design/mobile-reference/index.html            (clickable flow)
+     http://127.0.0.1:8012/design/mobile-reference/index.html?all=1      (every screen)
+   Sample data only. */
+const I = (n, c = "icon") => `<svg class="${c}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+const SECTIONS = [
+  { id: "EDGE-A", title: "Edge Computing & Intelligent Systems", n: 24 },
+  { id: "DAA-B", title: "Design and Analysis of Algorithms", n: 54 },
+  { id: "EDGE-C", title: "Intelligent Systems Lab", n: 18 },
+];
+const REVIEW = {
+  check: [["Usman Tariq", "22i-0049", "Check 36%"], ["Mahnoor Iqbal", "22i-0071", "Check 33%"]],
+  unseen: [["Hira Batool", "22i-0015"], ["Talha Mehmood", "22i-0057"]],
+  present: [["Ibrahim Sheikh", "22i-0022", "Matched 79%"], ["Ayesha Khan", "22i-0028", "Matched 75%"], ["Noor ul Ain", "22i-0029", "Matched 57%"], ["Bilal Ahmed", "22i-0035", "Matched 70%"], ["Saad Rizvi", "22i-0036", "Matched 61%"]],
+  nofile: [["Omer Farid", "22i-0098"]],
+};
+const state = { photos: 2, faces: 31 };
+
+const nav = (active, pending = true) => `
+<nav class="navbar" aria-label="Primary">
+  <button class="navitem" data-go="sections" ${active === "sections" ? 'aria-current="page"' : ""}><span class="pill">${I("sections")}</span>Sections</button>
+  <button class="navitem" data-go="uploads" ${active === "uploads" ? 'aria-current="page"' : ""}><span class="pill">${I("cloud-up")}${pending ? '<span class="dot"></span>' : ""}</span>Uploads</button>
+  <button class="navitem" data-go="device" ${active === "device" ? 'aria-current="page"' : ""}><span class="pill">${I("device")}</span>Device</button>
+</nav>`;
+
+const appbar = (title, sub, trailing = "") => `
+<header class="appbar"><div class="t"><h1 class="headline">${title}</h1>${sub ? `<div class="sub">${sub}</div>` : ""}</div>${trailing}</header>`;
+
+const reviewRow = (name, id, chip, kind, checked, disabled) => `
+<button class="checkrow" role="checkbox" aria-checked="${checked}" ${disabled ? 'aria-disabled="true" style="opacity:.55;cursor:default"' : ""}>
+  <span class="checkbox"><i>${I("check")}</i></span>
+  <span class="grow"><div class="nm">${name}</div><div class="id">${id}</div></span>
+  <span class="chip ${kind}">${chip}</span>
+</button>`;
+
+const SCREENS = {
+  login: (err) => `
+<div class="login">
+  <div class="brand">${I("mark")}Rollbook</div>
+  <div><h1 class="headline">Sign in</h1><p class="body-md" style="margin-top:4px">Take attendance by photographing your class.</p></div>
+  ${err ? `<p class="body-md" role="alert" style="color:var(--absent);display:flex;gap:8px">${I("alert", "icon icon-sm")}Wrong username or password.</p>` : ""}
+  <div class="field"><label>Username</label><input class="input" value="naila" ${err ? 'style="border-color:var(--absent)"' : ""}></div>
+  <div class="field"><label>Password</label><input class="input" type="password" value="${err ? "wrongpass" : "demo-password"}" ${err ? 'style="border-color:var(--absent)"' : ""}></div>
+  <button class="btn text" style="align-self:flex-start;margin-left:-12px">${I("server")}Server settings</button>
+  <button class="btn primary block" data-go="sections">Sign in</button>
+  <div class="foot">${I("lock")}<span>Photos are processed on this phone and are never uploaded.</span></div>
+</div>`,
+
+  sections: (empty) => `
+${appbar("Sections", "Dr. Naila Rehman", `<button class="iconbtn" aria-label="Refresh">${I("refresh")}</button>`)}
+<div class="scroll">
+  ${empty ? `<div class="empty">${I("sections")}<h2 class="title-md">No sections assigned yet</h2><p class="body-md">Sections are assigned by an administrator. Pull to refresh once yours appear.</p></div>` : `
+  <div class="banner" role="status">${I("cloud-up", "icon icon-sm")}<span class="grow">1 result is waiting to upload</span><button class="btn text" data-go="uploads">View</button></div>
+  <div class="group"><span>Choose a section</span><span class="n">${SECTIONS.length}</span></div>
+  <div class="list">${SECTIONS.map((s) => `
+    <button class="row" data-go="capture"><span class="grow"><div class="title-md">${s.title}</div><div class="meta"><span class="mono">${s.id}</span><span>${s.n} students</span></div></span>${I("chevron-right", "icon chev")}</button>`).join("")}
+  </div>`}
+</div>
+${nav("sections", !empty)}`,
+
+  capture: () => `
+<div class="capbar"><button class="iconbtn" data-go="sections" aria-label="Cancel and go back">${I("arrow-left")}</button><div class="t">EDGE-A · Edge Computing &amp; Intelligent…</div></div>
+<div class="stats"><span class="stat">Photos<b class="js-photos">${state.photos}</b></span><span class="stat">Faces<b class="js-faces">${state.faces}</b>· 3 unknown</span><span class="stat">Matched<b>22/24</b></span></div>
+<div class="cam"><div class="thirds"></div><i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+  <div class="hint">Photograph the whole class. Images stay in memory and are discarded after processing.</div></div>
+<div class="controls">
+  <div class="side"><button class="btn ghost-light" data-go="sections">Cancel</button></div>
+  <button class="shutter js-shutter" aria-label="Capture photo"></button>
+  <div class="side r"><button class="btn light" data-go="review">Review</button></div>
+</div>`,
+
+  review: () => `
+<header class="appbar has-back"><button class="iconbtn" data-go="capture" aria-label="Back to camera">${I("arrow-left")}</button><div class="t"><div class="title-md">Review attendance</div></div></header>
+<div class="summary"><div class="big"><span class="js-count" data-offset="17">${REVIEW.present.length + 17}</span><small>of 24 marked present</small></div><p class="body-md">Check the amber rows. Tap a row to correct it.</p></div>
+<div class="scroll">
+  <div class="group"><span>Check these</span><span class="n">${REVIEW.check.length}</span></div>
+  <div class="list">${REVIEW.check.map(([n, i, c]) => reviewRow(n, i, c, "review", false)).join("")}</div>
+  <div class="group"><span>Not seen</span><span class="n">${REVIEW.unseen.length}</span></div>
+  <div class="list">${REVIEW.unseen.map(([n, i]) => reviewRow(n, i, "Not seen", "", false)).join("")}</div>
+  <div class="group"><span>Present</span><span class="n">${REVIEW.present.length + 15}</span></div>
+  <div class="list">${REVIEW.present.map(([n, i, c]) => reviewRow(n, i, c, "present", true)).join("")}</div>
+  <div class="group"><span>No face on file</span><span class="n">1</span></div>
+  <div class="list">${REVIEW.nofile.map(([n, i]) => reviewRow(n, i, "No face on file", "", false, true)).join("")}</div>
+  <div style="height:16px"></div>
+</div>
+<div class="actionbar"><button class="btn" data-go="capture">More photos</button><button class="btn primary" data-go="done">Submit attendance</button></div>`,
+
+  done: () => `
+<div class="done">
+  <div class="tick">${I("check")}</div>
+  <div><h1 class="headline">Attendance submitted</h1><p class="body-md" style="margin-top:4px">Recorded on the portal for EDGE-A.</p></div>
+  <dl class="kv"><dt>Present</dt><dd class="mono">22</dd><dt>Absent</dt><dd class="mono">2</dd><dt>Photos taken</dt><dd class="mono">3</dd></dl>
+  <p class="body-md muted" style="display:flex;gap:10px">${I("lock", "icon icon-sm")}<span>Face data for this session has been wiped from this phone.</span></p>
+  <div class="foot"><button class="btn primary block" data-go="sections">Back to sections</button></div>
+</div>`,
+
+  uploads: (empty) => `
+${appbar("Uploads", "Results waiting for the portal")}
+<div class="scroll">
+  ${empty ? `<div class="empty">${I("cloud-up")}<h2 class="title-md">Nothing waiting</h2><p class="body-md">Results upload as soon as the portal is reachable. You will see them here if it is not.</p></div>` : `
+  <div class="list"><div class="row" style="cursor:default"><span class="grow"><div class="title-md">EDGE-A · 12 Nov, 09:02</div><div class="meta">Verified by the campus server · 41 present</div></span><span class="chip review">Waiting</span></div></div>
+  <div class="pad" style="padding-top:16px"><button class="btn tonal block">${I("refresh")}Retry now</button><p class="body-md muted" style="margin-top:12px">The portal could not be reached. This result holds only who was present, never photos, and uploads automatically when you are back on the network.</p></div>`}
+</div>
+${nav("uploads", !empty)}`,
+
+  device: () => `
+${appbar("Device", "Dr. Naila Rehman")}
+<div class="scroll">
+  <div class="section-h">Servers</div>
+  <div class="setting"><div><div class="k">Portal</div><div class="v">https://192.168.1.20:8001</div></div><button class="iconbtn" aria-label="Edit portal address">${I("pencil", "icon icon-sm")}</button></div>
+  <div class="setting"><div><div class="k">Campus server</div><div class="v">https://192.168.1.20:8000</div></div><button class="iconbtn" aria-label="Edit campus server address">${I("pencil", "icon icon-sm")}</button></div>
+  <div class="section-h">This phone</div>
+  <div class="setting" style="display:flex;justify-content:space-between;align-items:center"><div><div class="k">Google Pixel 8</div><div class="body-md muted">Registered with the campus server</div></div><span class="chip present">Active</span></div>
+  <div class="section-h">Privacy</div>
+  <ul class="points">
+    <li>${I("camera")}<span>Photos stay in memory and are discarded after processing.</span></li>
+    <li>${I("lock")}<span>Screenshots and backups of this app are blocked.</span></li>
+    <li>${I("shield")}<span>Requests are signed by a key that never leaves this phone's secure hardware.</span></li>
+  </ul>
+  <div class="pad" style="padding-top:22px;padding-bottom:16px"><button class="btn block" data-go="login">${I("logout")}Sign out</button></div>
+</div>
+${nav("device", true)}`,
+};
+
+const GALLERY = [["login", "Sign in"], ["login:err", "Sign in, error"], ["sections", "Sections"], ["sections:empty", "Sections, empty"], ["capture", "Capture"], ["review", "Review"], ["done", "Submitted"], ["uploads", "Uploads"], ["uploads:empty", "Uploads, empty"], ["device", "Device"]];
+
+function render(key) {
+  const [name, variant] = key.split(":");
+  return `<div class="sysbar ${name === "capture" ? "dark" : ""}"><span>9:41</span><span>${"●●●"}</span></div><section class="screen ${name === "capture" ? "capture" : ""} on" data-screen="${name}">${SCREENS[name](variant)}</section>`;
+}
+function wire(root) {
+  root.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
+  root.querySelectorAll(".checkrow:not([aria-disabled])").forEach((r) => r.addEventListener("click", () => {
+    r.setAttribute("aria-checked", r.getAttribute("aria-checked") !== "true");
+    const n = root.querySelectorAll('.checkrow[aria-checked="true"]').length, c = root.querySelector(".js-count");
+    if (c) c.textContent = n + Number(c.dataset.offset || 0); // the sample draws only some of the present rows
+  }));
+  const sh = root.querySelector(".js-shutter");
+  if (sh) sh.addEventListener("click", () => { state.photos++; state.faces += 14; root.querySelector(".js-photos").textContent = state.photos; root.querySelector(".js-faces").textContent = state.faces; });
+}
+const stage = document.getElementById("stage");
+const params = new URLSearchParams(location.search);
+function go(name) {
+  const phone = stage.querySelector(".phone");
+  phone.innerHTML = render(name);
+  wire(phone);
+}
+fetch("../icons.svg").then((r) => r.text()).then((svg) => {
+  document.getElementById("icons").innerHTML = svg;
+  if (params.get("all")) {
+    stage.innerHTML = GALLERY.map(([k, label]) => `<div class="phone-wrap"><div class="cap">${label}</div><div class="phone" data-k="${k}"></div></div>`).join("");
+    stage.querySelectorAll(".phone").forEach((p) => { p.innerHTML = render(p.dataset.k); wire(p); });
+  } else {
+    stage.innerHTML = `<div class="phone-wrap"><div class="phone"></div></div>`;
+    go(params.get("screen") || "login");
+  }
+});
+</script>
+</body>
+</html>

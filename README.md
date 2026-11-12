@@ -17,6 +17,7 @@ controls and threat model.
 | `server/mec_server/`, `enrollment/` | campus MEC + face enrollment | `feature/mec` |
 | `android/` | mobile edge app (Kotlin, Compose) | `feature/mobile` |
 | `models/` | model contract shared by phone and laptop | `main` |
+| `design/` | icon + font build, mobile design reference, font licences | frontend redesign |
 | `server/tests/test_integration.py` | end-to-end test across portal + MEC | `main` |
 
 ## Setup (Windows, from the repo root)
@@ -84,6 +85,22 @@ Use `--dry-run` to check photo quality first. Delete the photos afterwards.
 
 **5. Phone.** Open `android/` in Android Studio and run it on your phone.
 See [android/README.md](android/README.md).
+
+## Design and frontend
+
+The web portal and the Android app share one design language. See [DESIGN.md](DESIGN.md) for the system and [PRODUCT.md](PRODUCT.md) for the modules.
+
+- Web: server-rendered Jinja templates with a static stylesheet and a small script (`server/portal/templates`, `server/portal/static`). Modules whose backend is not built yet (Sessions, Students, Security, Evaluation, Settings) render clearly labelled **sample data** from `server/portal/preview_data.py`.
+- Android: Jetpack Compose, Material 3 themed with the same tokens (`android/.../ui/theme`, `ui/components`, `ui/screens`).
+- Mobile design reference, viewable without Android tooling. From the repo root:
+
+```bash
+python -m http.server 8012
+```
+
+Then open `http://127.0.0.1:8012/design/mobile-reference/index.html` (clickable flow) or add `?all=1` to see every screen.
+
+- Regenerate icons and copy fonts: `python design/build_assets.py`.
 
 ## Models
 
