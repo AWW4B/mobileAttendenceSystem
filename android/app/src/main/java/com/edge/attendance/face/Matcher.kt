@@ -7,7 +7,7 @@ import kotlin.math.sqrt
 
 enum class Decision { PRESENT, REVIEW }
 
-data class Match(val pseudonym: String, val score: Float, val decision: Decision)
+data class Match(val pseudonym: String, val score: Float, val decision: Decision, val face: Int = -1)
 
 data class PhotoResult(val matches: List<Match>, val unmatchedFaces: Int)
 
@@ -62,7 +62,7 @@ class Matcher(
             if (c.face in usedFaces || c.template in usedTemplates) continue
             usedFaces += c.face
             usedTemplates += c.template
-            matches += Match(ids[c.template], c.score, if (c.score >= accept) Decision.PRESENT else Decision.REVIEW)
+            matches += Match(ids[c.template], c.score, if (c.score >= accept) Decision.PRESENT else Decision.REVIEW, c.face)
         }
         return PhotoResult(matches, faces.size - usedFaces.size)
     }

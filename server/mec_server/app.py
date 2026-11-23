@@ -3,7 +3,8 @@
 Stores face templates (pseudonymised, transformed, encrypted), hands a
 section's templates to an authorised teacher device for on-phone matching,
 verifies the signed attendance result and returns a MEC-signed receipt that
-the phone forwards to the online portal. It never receives images.
+the phone forwards to the online portal. The class photo arrives only as
+optional appeal evidence and is stored encrypted for a limited time.
 
 Run:  uvicorn mec_server.app:create_app --factory --host 0.0.0.0 --port 8000 \
           --ssl-keyfile data/tls/key.pem --ssl-certfile data/tls/cert.pem
@@ -11,6 +12,9 @@ Run:  uvicorn mec_server.app:create_app --factory --host 0.0.0.0 --port 8000 \
 """
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 import hmac
 import json
 import re
@@ -38,6 +42,10 @@ from .vault import InvalidVector, TemplateVault, vector_to_b64
 
 PSEUDONYM_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
 MAX_SIGNED_BODY = 64 * 1024
+MAX_EVIDENCE_BYTES = 2 * 1024 * 1024
+MAX_SUBMIT_BODY = 4 * 1024 * 1024   # evidence is base64 inside the signed body
+MAX_EVIDENCE_FACES = 200
+MAX_EVIDENCE_DIM = 4096
 
 
 class TemplateIn(BaseModel):
@@ -47,6 +55,42 @@ class TemplateIn(BaseModel):
 def _check_pseudonym(p: str) -> None:
     if not PSEUDONYM_RE.match(p):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "malformed pseudonym")
+
+
+def _num(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) != float("inf")
+
+
+def parse_evidence(ev, allowed: set[str]) -> tuple[bytes, int, int, list[dict]]:
+    """Validate the optional evidence block. Raises ValueError with a reason."""
+    if not isinstance(ev, dict):
+        raise ValueError("evidence must be an object")
+    b64 = ev.get("jpeg_b64")
+    if not isinstance(b64, str) or len(b64) > MAX_EVIDENCE_BYTES * 4 // 3 + 8:
+        raise ValueError("evidence jpeg missing or too large")
+    try:
+        jpeg = base64.b64decode(b64, validate=True)
+    except (binascii.Error, ValueError):
+        raise ValueError("evidence jpeg is not valid base64")
+    if len(jpeg) > MAX_EVIDENCE_BYTES or not jpeg.startswith(b"\xff\xd8\xff"):
+        raise ValueError("evidence is not a JPEG within the size limit")
+    w, h = ev.get("width"), ev.get("height")
+    if not all(isinstance(v, int) and not isinstance(v, bool) and 0 < v <= MAX_EVIDENCE_DIM for v in (w, h)):
+        raise ValueError("evidence width/height invalid")
+    faces = ev.get("faces")
+    if not isinstance(faces, list) or len(faces) > MAX_EVIDENCE_FACES:
+        raise ValueError("evidence faces invalid")
+    out = []
+    for f in faces:
+        box, p, score = (f.get("box"), f.get("pseudonym"), f.get("score")) if isinstance(f, dict) else (None,) * 3
+        if not (isinstance(box, list) and len(box) == 4 and all(_num(v) for v in box)):
+            raise ValueError("face box must be 4 numbers")
+        if p is not None and p not in allowed:
+            raise ValueError("evidence names a student not in this section")
+        if score is not None and not _num(score):
+            raise ValueError("face score must be a number or null")
+        out.append({"box": box, "pseudonym": p, "score": score})
+    return jpeg, w, h, out
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -65,10 +109,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         store.audit(actor, f"rejected:{action}", reason=msg, **detail)
         return HTTPException(code, msg)
 
-    async def signed_payload(request: Request, x_signature: str | None, action: str) -> tuple[dict, Any]:
+    async def signed_payload(request: Request, x_signature: str | None, action: str,
+                             limit: int = MAX_SIGNED_BODY) -> tuple[dict, Any]:
         """Read the raw body, verify the device signature and timestamp."""
         raw = await request.body()
-        if len(raw) > MAX_SIGNED_BODY:
+        if len(raw) > limit:
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "body too large")
         try:
             payload = json.loads(raw)
@@ -172,8 +217,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/sessions/{session_id}/attendance")
     async def submit_attendance(session_id: str, request: Request,
                                 x_signature: str | None = Header(default=None)) -> dict:
-        """Body: {device_id, session_id, nonce, timestamp, present: [pseudonym...], metrics?: {...}}"""
-        payload, device = await signed_payload(request, x_signature, "submit_attendance")
+        """Body: {device_id, session_id, nonce, timestamp, present: [pseudonym...], metrics?: {...},
+        evidence?: {jpeg_b64, width, height, faces: [{box, pseudonym, score}]}}"""
+        payload, device = await signed_payload(request, x_signature, "submit_attendance", MAX_SUBMIT_BODY)
         dev = device["device_id"]
         session = store.get_session(session_id)
         if session is None or payload.get("session_id") != session_id:
@@ -201,6 +247,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not isinstance(metrics, dict) or len(json.dumps(metrics)) > settings.max_metrics_bytes:
                 raise HTTPException(400, "metrics must be a small JSON object")
 
+        evidence, extra = None, {}
+        if payload.get("evidence") is not None:
+            try:
+                jpeg, w, h, faces = parse_evidence(payload["evidence"], allowed)
+            except ValueError as e:
+                raise reject(dev, "submit_attendance", 400, str(e), session_id=session_id)
+            sha = hashlib.sha256(jpeg).hexdigest()
+            nonce_e, ct = vault.seal_evidence(session_id, jpeg)
+            evidence = (sha, w, h, json.dumps(faces), nonce_e, ct, int(time.time()) + settings.evidence_retention_s)
+            extra["evidence_sha256"] = sha
+
         # Receipt for the online portal: MEC-signed, pseudonyms only. The phone
         # forwards it (now, or later if offline); the portal maps pseudonyms to
         # names and marks everyone else in the roster absent.
@@ -208,12 +265,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             receipt_key, issuer=MEC_ISSUER, typ="receipt", sub=session["teacher_sub"], aud=["portal"],
             ttl_s=settings.receipt_ttl_s,
             extra={"sid": session_id, "sec": session["section_id"], "psn": sorted(present),
-                   "tak": int(time.time())},
+                   "tak": int(time.time()), **extra},
         )
-        if not store.submit(session_id, present, metrics, receipt):
+        if not store.submit(session_id, present, metrics, receipt, evidence):
             raise reject(dev, "submit_attendance", 409, "attendance already submitted", session_id=session_id)
         store.audit(dev, "attendance_submitted", session_id=session_id, present=len(present),
-                    section_size=len(allowed))
+                    section_size=len(allowed), evidence=evidence is not None)
         return {"session_id": session_id, "recorded": len(present), "receipt": receipt}
 
     @app.get("/sessions/{session_id}/attendance")
@@ -230,6 +287,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "present": store.present_for(session_id),
             "receipt": session["receipt"],  # re-fetch if the phone lost it before forwarding
         }
+
+    @app.get("/sessions/{session_id}/evidence")
+    def get_evidence(session_id: str, authorization: str | None = Header(default=None)) -> dict:
+        claims = tokens.verify(auth_key, tokens.bearer(authorization), issuer=PORTAL_ISSUER,
+                               typ="access", aud="mec")
+        session = store.get_session(session_id)
+        row = store.get_evidence(session_id) if session and session["teacher_sub"] == claims["sub"] else None
+        if row is None:
+            raise HTTPException(404, "no evidence for this session")
+        store.audit(f"teacher:{claims['sub']}", "evidence_read", session_id=session_id)
+        jpeg = vault.open_evidence(session_id, row["nonce"], row["ciphertext"])
+        return {"sha256": row["sha256"], "width": row["width"], "height": row["height"],
+                "faces": json.loads(row["faces_json"]), "jpeg_b64": base64.b64encode(jpeg).decode(),
+                "expires_at": row["expires_at"]}
 
     # ---- admin (enrollment tooling only) ------------------------------
     @app.put("/admin/templates/{pseudonym}")

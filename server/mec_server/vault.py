@@ -66,6 +66,7 @@ class TemplateVault:
         self._master = master_key
         self.dim = dim
         self._aead = AESGCM(self._derive(b"attend/template-enc/v1"))
+        self._evidence_aead = AESGCM(self._derive(b"attend/evidence-enc/v1"))
 
     def _derive(self, info: bytes) -> bytes:
         return HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=info).derive(self._master)
@@ -96,6 +97,13 @@ class TemplateVault:
     def open(self, pseudonym: str, version: int, nonce: bytes, ct: bytes) -> np.ndarray:
         raw = self._aead.decrypt(nonce, ct, self._aad(pseudonym, version))
         return np.frombuffer(raw, dtype="<f4").astype(np.float32)
+
+    def seal_evidence(self, session_id: str, jpeg: bytes) -> tuple[bytes, bytes]:
+        nonce = os.urandom(12)
+        return nonce, self._evidence_aead.encrypt(nonce, jpeg, f"evidence|{session_id}".encode())
+
+    def open_evidence(self, session_id: str, nonce: bytes, ct: bytes) -> bytes:
+        return self._evidence_aead.decrypt(nonce, ct, f"evidence|{session_id}".encode())
 
     @staticmethod
     def _aad(pseudonym: str, version: int) -> bytes:

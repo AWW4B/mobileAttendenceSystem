@@ -19,7 +19,7 @@ val edgeAssetsDir = layout.buildDirectory.dir("generated/edgeAssets")
 val copyEdgeAssets by tasks.registering(Copy::class) {
     doFirst {
         if (!modelFile.exists()) {
-            throw GradleException("Missing $modelFile. Run `python enrollment/fetch_models.py` from the repo root first.")
+            logger.warn("Missing $modelFile: the app builds but cannot embed faces. Run `python enrollment/fetch_models.py` from the repo root.")
         }
         if (!certFile.exists()) {
             logger.warn("No $certFile: the app will only trust system CAs. Run server/scripts/gen_dev_cert.py.")

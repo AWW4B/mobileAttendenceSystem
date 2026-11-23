@@ -7,11 +7,14 @@ Run (from server/):
 """
 from __future__ import annotations
 
+import base64
 import csv
 import datetime as dt
 import io
+import ssl
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, Form, Header, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -27,6 +30,7 @@ from .preview import build_router as build_preview_router
 from .store import PortalStore
 
 COOKIE = "portal_session"
+STUDENT_COOKIE = "student_session"   # typ "student" tokens: never valid for teacher pages
 
 
 class LoginIn(BaseModel):
@@ -76,10 +80,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     store = PortalStore(settings.portal_dir / "portal.db")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
     templates.env.filters["when"] = _fmt_time
+    templates.env.globals["open_appeals"] = store.open_appeal_count
 
     app = FastAPI(title="Attendance portal", version="0.2.0")
     app.state.store = store
     app.state.settings = settings
+
+    def fetch_evidence(teacher_id: int, session_id: str) -> dict | None:
+        """Ask the MEC for a session's class photo as this teacher. None if the MEC has none.
+        Replaceable via app.state.fetch_evidence (tests)."""
+        token, _ = tokens.issue(signing_key, issuer=PORTAL_ISSUER, typ="access", sub=str(teacher_id),
+                                aud=["portal", "mec"], ttl_s=60)
+        verify = ssl.create_default_context(cafile=settings.mec_ca) if settings.mec_ca else True
+        r = httpx.get(f"{settings.mec_url}/sessions/{session_id}/evidence", timeout=10, verify=verify,
+                      headers={"Authorization": f"Bearer {token}"})
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.json()
+
+    app.state.fetch_evidence = fetch_evidence
     # Web UI assets (css, js, fonts). Presentation only.
     app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 
@@ -161,7 +181,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         present = set(claims.get("psn", []))
         if not present <= {r["pseudonym"] for r in roster}:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "receipt lists students outside the section")
-        new, p, a = store.record_session(str(claims["sid"]), section_id, int(claims["tak"]), present)
+        new, p, a = store.record_session(str(claims["sid"]), section_id, int(claims["tak"]), present,
+                                       claims.get("evidence_sha256"))
         return {"session_id": claims["sid"], "recorded": new, "present": p, "absent": a}
 
     @app.get("/api/admin/students/{roll_no}/pseudonym")
@@ -265,6 +286,134 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                  if (s["roll_no"], cs["session_id"]) in matrix else "") for cs in sessions])
         return Response(buf.getvalue(), media_type="text/csv",
                         headers={"Content-Disposition": f'attachment; filename="{section_id}-attendance.csv"'})
+
+    # =====================================================================
+    # Appeals: students appeal an absence, the section's teacher resolves it
+    # =====================================================================
+    def student_from_cookie(request: Request) -> str | None:
+        token = request.cookies.get(STUDENT_COOKIE)
+        if not token:
+            return None
+        try:
+            return str(tokens.verify(public_key, token, issuer=PORTAL_ISSUER, typ="student", aud="portal")["sub"])
+        except HTTPException:
+            return None
+
+    def to_student_login() -> RedirectResponse:
+        return RedirectResponse("/student/login", status_code=303)
+
+    @app.get("/student/login", response_class=HTMLResponse, include_in_schema=False)
+    def student_login_page(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(request, "login.html", {"error": None, "student": True})
+
+    @app.post("/student/login", include_in_schema=False)
+    def student_login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
+        row = store.verify_student(username, password)
+        if row is None:
+            return templates.TemplateResponse(request, "login.html", {
+                "error": "Invalid roll number or password.", "student": True}, status_code=401)
+        token, _ = tokens.issue(signing_key, issuer=PORTAL_ISSUER, typ="student", sub=row["roll_no"],
+                                aud=["portal"], ttl_s=settings.access_token_ttl_s)
+        resp = RedirectResponse("/student", status_code=303)
+        resp.set_cookie(STUDENT_COOKIE, token, max_age=settings.access_token_ttl_s,
+                        httponly=True, samesite="strict", secure=request.url.scheme == "https")
+        return resp
+
+    @app.post("/student/logout", include_in_schema=False)
+    def student_logout() -> RedirectResponse:
+        resp = to_student_login()
+        resp.delete_cookie(STUDENT_COOKIE)
+        return resp
+
+    @app.get("/student", response_class=HTMLResponse, include_in_schema=False)
+    def student_page(request: Request):
+        roll_no = student_from_cookie(request)
+        if roll_no is None:
+            return to_student_login()
+        return templates.TemplateResponse(request, "student.html", {
+            "student": store.get_student(roll_no), "rows": store.student_sessions(roll_no)})
+
+    @app.post("/student/appeals", include_in_schema=False)
+    def student_appeal(request: Request, session_id: str = Form(...),
+                       reason: str = Form(..., max_length=500)):
+        roll_no = student_from_cookie(request)
+        if roll_no is None:
+            return to_student_login()
+        if not reason.strip() or not store.create_appeal(session_id, roll_no, reason.strip()):
+            raise HTTPException(400, "Appeal needs a reason, an absent mark, and no other open appeal")
+        return RedirectResponse("/student", status_code=303)
+
+    def appeal_view(request: Request, appeal_id: int):
+        teacher_id = teacher_from_cookie(request)
+        if teacher_id is None:
+            return None, None, to_login()
+        row = store.appeal(appeal_id, teacher_id)
+        if row is None:
+            raise HTTPException(404, "appeal not found")
+        return teacher_id, row, None
+
+    def load_evidence(teacher_id: int, row) -> tuple[dict | None, str | None]:
+        """(evidence, problem). The photo is fetched per request and never stored here."""
+        if not row["evidence_sha256"]:
+            return None, "No class photo was kept for this session."
+        try:
+            ev = app.state.fetch_evidence(teacher_id, row["session_id"])
+        except (httpx.HTTPError, OSError):
+            return None, "The campus server could not be reached, so the photo cannot be shown now."
+        if ev is None:
+            return None, "The class photo is no longer available (expired or deleted)."
+        if ev.get("sha256") != row["evidence_sha256"]:
+            return None, "The photo does not match the signed receipt and was not shown."
+        return ev, None
+
+    @app.get("/appeals", response_class=HTMLResponse, include_in_schema=False)
+    def appeals_page(request: Request):
+        teacher_id = teacher_from_cookie(request)
+        if teacher_id is None:
+            return to_login()
+        return templates.TemplateResponse(request, "appeals.html", {
+            "teacher": store.get_teacher(teacher_id), "appeals": store.appeals_for(teacher_id)})
+
+    @app.get("/appeals/{appeal_id}", response_class=HTMLResponse, include_in_schema=False)
+    def appeal_page(request: Request, appeal_id: int):
+        teacher_id, row, redirect = appeal_view(request, appeal_id)
+        if redirect:
+            return redirect
+        ev, problem = load_evidence(teacher_id, row)
+        boxes = []
+        if ev:
+            names = {r["pseudonym"]: r["name"] for r in store.roster(row["section_id"], teacher_id)}
+            for f in ev["faces"]:
+                x, y, w, h = f["box"]
+                boxes.append({"l": 100 * x / ev["width"], "t": 100 * y / ev["height"],
+                              "w": 100 * w / ev["width"], "h": 100 * h / ev["height"],
+                              "label": names.get(f["pseudonym"]), "me": f["pseudonym"] == row["pseudonym"]})
+        return templates.TemplateResponse(request, "appeal.html", {
+            "teacher": store.get_teacher(teacher_id), "a": row, "ev": ev, "problem": problem, "boxes": boxes})
+
+    @app.get("/appeals/{appeal_id}/evidence.jpg", include_in_schema=False)
+    def appeal_photo(request: Request, appeal_id: int):
+        teacher_id, row, redirect = appeal_view(request, appeal_id)
+        if redirect:
+            return redirect
+        ev, _ = load_evidence(teacher_id, row)
+        if ev is None:
+            raise HTTPException(404, "no photo")
+        return Response(base64.b64decode(ev["jpeg_b64"]), media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store"})
+
+    @app.post("/appeals/{appeal_id}/resolve", include_in_schema=False)
+    def appeal_resolve(request: Request, appeal_id: int, decision: str = Form(...),
+                       note: str = Form("", max_length=500)):
+        _, row, redirect = appeal_view(request, appeal_id)
+        if redirect:
+            return redirect
+        note = note.strip()
+        if decision not in ("accept", "reject") or (decision == "reject" and not note):
+            raise HTTPException(400, "Rejecting needs a note for the student")
+        if not store.resolve_appeal(appeal_id, decision == "accept", note):
+            raise HTTPException(409, "appeal already resolved")
+        return RedirectResponse("/appeals", status_code=303)
 
     # Web UI for modules with no backend yet (sample data; see preview.py).
     app.include_router(build_preview_router(teacher_from_cookie, store, templates))

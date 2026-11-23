@@ -17,6 +17,7 @@
 {% block body %}
 {% set nav_items = [
   ("Workspace", [("overview", "/dashboard", "overview", "Overview", false),
+                 ("appeals", "/appeals", "alert", "Appeals", false),
                  ("sessions", "/sessions", "sessions", "Sessions", true),
                  ("students", "/students", "students", "Students", true)]),
   ("Insight",   [("evaluation", "/evaluation", "chart", "Evaluation", true)]),
@@ -31,12 +32,12 @@
         <div class="nav-label">{{ label }}</div>
         {% for key, href, icon, text, preview in items %}
           <a href="{{ href }}" title="{{ text }}"{% if nav == key %} aria-current="page"{% endif %}>
-            {{ m.icon(icon) }}<span>{{ text }}</span>{% if preview %}<span class="tag">Preview</span>{% endif %}
+            {{ m.icon(icon) }}<span>{{ text }}</span>{% if preview %}<span class="tag">Preview</span>{% elif key == "appeals" and teacher and open_appeals(teacher.id) %}<span class="tag">{{ open_appeals(teacher.id) }}</span>{% endif %}
           </a>
         {% endfor %}
       {% endfor %}
     </nav>
-    <div class="sidebar-foot">{{ m.icon("lock") }}<span>Face images stay on the phone. This portal holds names and attendance only.</span></div>
+    <div class="sidebar-foot">{{ m.icon("lock") }}<span>Class photos are kept encrypted on the campus server for 30 days as appeal evidence. This portal holds names and attendance only.</span></div>
   </aside>
 
   <div class="main">

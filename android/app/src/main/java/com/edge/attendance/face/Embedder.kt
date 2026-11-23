@@ -41,7 +41,7 @@ class Embedder(context: Context) : Closeable {
     private val env = OrtEnvironment.getEnvironment()
     private val session: OrtSession = env.createSession(
         context.assets.open(MODEL_ASSET).use { it.readBytes() },
-        OrtSession.SessionOptions().apply { setIntraOpNumThreads(4) },
+        OrtSession.SessionOptions().apply { setIntraOpNumThreads(minOf(4, Runtime.getRuntime().availableProcessors())) },
     )
     private val inputName = session.inputNames.first()
     private val pixels = IntArray(PLANE)

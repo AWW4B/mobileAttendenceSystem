@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block title %}My attendance · {{ super() }}{% endblock %}
+{% block body %}
+<main class="content" id="content" style="max-width: 860px; margin: 0 auto;">
+  <div class="page-head">
+    <div>
+      <h1>{{ student.name }}</h1>
+      <p><span class="mono">{{ student.roll_no }}</span> · your attendance. Class photos are never shown to students.</p>
+    </div>
+    <form method="post" action="/student/logout"><button class="btn">{{ m.icon("logout", "icon icon-sm") }}Log out</button></form>
+  </div>
+  <div class="stack">
+  {% for section, items in rows|groupby("section") %}
+    <section class="panel">
+      <div class="panel-head"><h2>{{ section }}</h2></div>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th scope="col">Session</th><th scope="col">Status</th><th scope="col">Appeal</th></tr></thead>
+          <tbody>
+          {% for r in items|sort(attribute="taken_at", reverse=true) %}
+            <tr>
+              <td>{{ r.taken_at|when }}</td>
+              <td>{{ m.chip("present" if r.status == "present" else "absent", r.status|capitalize) }}</td>
+              <td>
+                {% if r.appeal_status == "open" %}
+                  {{ m.chip("review", "Open") }} <span class="muted small">{{ r.reason }}</span>
+                {% else %}
+                  {% if r.appeal_status %}
+                    {{ m.chip("present" if r.appeal_status == "accepted" else "absent", r.appeal_status|capitalize) }}
+                    {% if r.teacher_note %}<span class="muted small">{{ r.teacher_note }}</span>{% endif %}
+                  {% endif %}
+                  {% if r.status == "absent" %}
+                  <form method="post" action="/student/appeals" class="appeal-form">
+                    <input type="hidden" name="session_id" value="{{ r.session_id }}">
+                    <input class="input" name="reason" maxlength="500" required placeholder="Why were you present?" aria-label="Reason for appeal">
+                    <button class="btn btn-sm">Appeal</button>
+                  </form>
+                  {% endif %}
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% else %}
+    <section class="panel"><div class="empty"><h2>No sessions recorded yet</h2></div></section>
+  {% endfor %}
+  </div>
+</main>
+{% endblock %}

@@ -3,7 +3,8 @@
 Privacy-preserving, edge-based face attendance.
 A teacher photographs the class. **Face recognition runs on the Android
 phone**, a **campus MEC (laptop)** stores encrypted face templates, the
-**online portal** records attendance, and **no image ever leaves the phone**.
+**online portal** records attendance. The class photo is kept encrypted on the
+MEC for 30 days as evidence for student appeals, and never stored on the portal.
 
 See [docs/architecture.md](docs/architecture.md) for the design, privacy
 controls and threat model.
@@ -68,7 +69,13 @@ to `server/data/`, which is git-ignored.
 ../.venv/Scripts/python -m uvicorn mec_server.app:create_app --factory --host 0.0.0.0 --port 8000 --ssl-keyfile data/tls/key.pem --ssl-certfile data/tls/cert.pem
 ```
 
-The teacher dashboard is at `https://<laptop-ip>:8001/`. In this prototype
+The teacher dashboard is at `https://<laptop-ip>:8001/`. Students sign in at
+`/student/login` (roll number + password) to see their attendance and appeal an
+absence. Set a password with `python -m portal.cli set-student-password <roll_no> <password>`
+(`demo` sets each demo student's password to their roll number). Teachers resolve
+appeals under **Appeals**, with the class photo and face boxes. The portal reads
+photos from the MEC at `ATTEND_MEC_URL` (default `https://localhost:8000`), trusting
+the cert in `ATTEND_MEC_CA`. In this prototype
 the portal also runs on the laptop. In the design it is a separate online
 service, and it shares no database with the MEC.
 

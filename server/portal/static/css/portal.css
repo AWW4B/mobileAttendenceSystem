@@ -419,3 +419,13 @@ details.data-view .table-wrap { border-top: 1px solid var(--line); }
   .table-wrap { overflow: visible; max-height: none !important; }
   .register th.sticky, .register td.sticky { position: static; }
 }
+
+/* Appeals: class photo with face boxes (percent of image size) */
+.evidence { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
+.evidence img { max-width: 100%; height: auto; display: block; border-radius: var(--r-sm); }
+.face-box { position: absolute; box-sizing: border-box; border: 2px solid var(--present); }
+.face-box.me { border-color: var(--accent); border-width: 3px; }
+.face-box.unmatched { border-style: dashed; border-color: var(--review); }
+.face-box span { position: absolute; left: -2px; bottom: 100%; padding: 1px 5px; font-size: 11px; line-height: 1.4; white-space: nowrap; background: var(--surface); color: var(--ink); border-radius: 3px; }
+.appeal-form { display: flex; gap: 8px; margin-top: 6px; }
+.appeal-form .input { flex: 1; min-width: 160px; }

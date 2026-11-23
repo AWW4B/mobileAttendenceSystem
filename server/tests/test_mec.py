@@ -2,6 +2,8 @@
 portal key, so the MEC is tested without the portal component."""
 from __future__ import annotations
 
+import base64
+import hashlib
 import secrets
 import time
 from dataclasses import replace
@@ -244,3 +246,83 @@ def test_audit_log_records_rejections(mec):
     mec.open(mec.grant(), device, ts=1)
     actions = [e["action"] for e in mec.client.get("/admin/audit", headers=mec.admin).json()]
     assert "rejected:open_session" in actions and "device_registered" in actions
+
+
+# ---- evidence photo -----------------------------------------------------
+JPEG = b"\xff\xd8\xff\xe0" + bytes(range(256)) * 8
+
+
+def evidence(mec, **overrides) -> dict:
+    ev = {"jpeg_b64": base64.b64encode(JPEG).decode(), "width": 1600, "height": 1200,
+          "faces": [{"box": [10, 20, 100, 120], "pseudonym": mec.p("s0"), "score": 0.61},
+                    {"box": [300, 20, 90, 100], "pseudonym": None, "score": None}]}
+    ev.update(overrides)
+    return ev
+
+
+def get_evidence(mec, session_id, teacher="1"):
+    return mec.client.get(f"/sessions/{session_id}/evidence",
+                          headers={"Authorization": f"Bearer {mec.access(teacher)}"})
+
+
+def test_evidence_stored_encrypted_and_hashed_in_receipt(mec):
+    device = mec.register(new_device())
+    session = mec.open(mec.grant(), device).json()
+    r = mec.submit(session, device, [mec.p("s0")], evidence=evidence(mec))
+    assert r.status_code == 200, r.text
+    claims = tokens.verify(mec_signing_key(mec.settings).public_key(), r.json()["receipt"],
+                           issuer=MEC_ISSUER, typ="receipt", aud="portal")
+    assert claims["evidence_sha256"] == hashlib.sha256(JPEG).hexdigest()
+    db_bytes = b"".join(p.read_bytes() for p in mec.settings.mec_dir.glob("mec.db*"))
+    assert JPEG[:64] not in db_bytes
+    ev = get_evidence(mec, session["session_id"]).json()
+    assert base64.b64decode(ev["jpeg_b64"]) == JPEG and ev["sha256"] == claims["evidence_sha256"]
+    assert ev["width"] == 1600 and ev["faces"][0]["pseudonym"] == mec.p("s0")
+    actions = [e["action"] for e in mec.client.get("/admin/audit", headers=mec.admin).json()]
+    assert "evidence_read" in actions
+
+
+@pytest.mark.parametrize("bad", [
+    {"jpeg_b64": "not base64!!"},
+    {"jpeg_b64": base64.b64encode(b"GIF89a....").decode()},
+    {"jpeg_b64": base64.b64encode(b"\xff\xd8\xff" + bytes(2 * 1024 * 1024)).decode()},
+    {"width": 0}, {"height": 5000}, {"width": "1600"},
+    {"faces": [{"box": [1, 2, 3], "pseudonym": None, "score": None}]},
+    {"faces": [{"box": [1, 2, 3, 4], "pseudonym": "outsider-pseudonym", "score": None}]},
+    {"faces": [{"box": [1, 2, 3, 4], "pseudonym": None, "score": None}] * 201},
+])
+def test_invalid_evidence_rejected(mec, bad):
+    device = mec.register(new_device())
+    session = mec.open(mec.grant(), device).json()
+    assert mec.submit(session, device, [], evidence=evidence(mec, **bad)).status_code == 400
+    actions = [e["action"] for e in mec.client.get("/admin/audit", headers=mec.admin).json()]
+    assert "rejected:submit_attendance" in actions
+    assert get_evidence(mec, session["session_id"]).status_code == 404
+
+
+def test_evidence_readable_by_owner_only(mec):
+    device = mec.register(new_device())
+    session = mec.open(mec.grant(), device).json()
+    mec.submit(session, device, [], evidence=evidence(mec))
+    assert get_evidence(mec, session["session_id"]).status_code == 200
+    assert get_evidence(mec, session["session_id"], teacher="2").status_code == 404
+    assert mec.client.get(f"/sessions/{session['session_id']}/evidence").status_code == 401
+
+
+def test_submit_without_evidence_still_works(mec):
+    device = mec.register(new_device())
+    session = mec.open(mec.grant(), device).json()
+    r = mec.submit(session, device, [mec.p("s0")])
+    assert r.status_code == 200
+    claims = tokens.verify(mec_signing_key(mec.settings).public_key(), r.json()["receipt"],
+                           issuer=MEC_ISSUER, typ="receipt", aud="portal")
+    assert "evidence_sha256" not in claims
+    assert get_evidence(mec, session["session_id"]).status_code == 404
+
+
+def test_expired_evidence_is_gone(settings):
+    m = Mec(settings, replace(settings, evidence_retention_s=-1))
+    device = m.register(new_device())
+    session = m.open(m.grant(), device).json()
+    assert m.submit(session, device, [], evidence=evidence(m)).status_code == 200
+    assert get_evidence(m, session["session_id"]).status_code == 404

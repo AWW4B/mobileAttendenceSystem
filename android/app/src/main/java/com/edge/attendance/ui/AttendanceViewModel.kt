@@ -2,13 +2,19 @@ package com.edge.attendance.ui
 
 import android.app.Application
 import android.graphics.Bitmap
+import android.graphics.Rect
+import android.util.Base64
 import android.os.BatteryManager
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.edge.attendance.Check
+import com.edge.attendance.DeviceCheck
 import com.edge.attendance.data.ApiException
+import com.edge.attendance.data.Evidence
+import com.edge.attendance.data.EvidenceFace
 import com.edge.attendance.data.AppPrefs
 import com.edge.attendance.data.DeviceKey
 import com.edge.attendance.data.Http
@@ -30,7 +36,11 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 enum class Screen { LOGIN, SECTIONS, CAPTURE, REVIEW, DONE }
 
@@ -47,6 +57,12 @@ data class StudentRow(
     val score: Float?,
     val markedPresent: Boolean,
 )
+
+/** A detected face in the evidence photo (downscaled pixel coords) and who it matched, if anyone. */
+class FaceBox(val box: Rect, val pseudonym: String?, val score: Float?)
+
+/** The class photo with the most faces, kept in memory until submit or discard. */
+class EvidencePhoto(val bitmap: Bitmap, val faces: List<FaceBox>)
 
 data class UiState(
     val screen: Screen = Screen.LOGIN,
@@ -73,14 +89,19 @@ data class UiState(
     val submittedAbsent: Int = 0,
     val submittedPhotos: Int = 0,
     val uploaded: Boolean = true,
+    val progress: String? = null,
+    val evidence: EvidencePhoto? = null,
+    val deviceChecks: List<Check> = emptyList(),
 )
 
 /**
  * Orchestrates: portal login -> grant -> MEC session -> on-device matching ->
  * signed submission -> receipt forwarded to the portal.
  *
- * Privacy: photos are processed and dropped immediately; templates live only
- * in the [Matcher] for the length of one session and are wiped after.
+ * Privacy: photos are processed and dropped immediately, except the one class
+ * photo kept in memory as appeal evidence until submit or discard (the MEC stores
+ * it encrypted for 30 days). Templates live only in the [Matcher] for the length
+ * of one session and are wiped after.
  */
 class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = AppPrefs(app)
@@ -90,7 +111,8 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
     private val receipts = ReceiptQueue(app)
 
     private val _state = MutableStateFlow(
-        UiState(portalUrl = prefs.portalUrl, mecUrl = prefs.mecUrl, lastUsername = prefs.lastUsername)
+        UiState(portalUrl = prefs.portalUrl, mecUrl = prefs.mecUrl, lastUsername = prefs.lastUsername,
+            deviceChecks = DeviceCheck.run(app))
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
 
@@ -105,6 +127,7 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
     private var timings = PipelineTimings()
     private var openRttMs = 0L
     private var batteryAtStart = -1
+    private var evidence: EvidencePhoto? = null
 
     private fun portal() = PortalClient(http, prefs.portalUrl)
     private fun mec() = MecClient(http, prefs.mecUrl, deviceKey)
@@ -125,7 +148,7 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
                 Log.e(TAG, "Unexpected error", e)
                 _state.update { it.copy(message = "Something went wrong: ${e.message}") }
             } finally {
-                _state.update { it.copy(busy = false) }
+                _state.update { it.copy(busy = false, progress = null) }
             }
         }
     }
@@ -168,7 +191,7 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
     fun logout() {
         endSession()
         accessToken = null
-        _state.update { UiState(portalUrl = prefs.portalUrl, mecUrl = prefs.mecUrl, lastUsername = prefs.lastUsername) }
+        _state.update { UiState(portalUrl = prefs.portalUrl, mecUrl = prefs.mecUrl, lastUsername = prefs.lastUsername, deviceChecks = it.deviceChecks) }
     }
 
     fun refreshSections() = launchOp {
@@ -256,22 +279,54 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun processPhoto(m: Matcher, photo: Bitmap) {
         try {
-            val vectors = pipeline.embeddings(photo, timings)
+            val boxes = ArrayList<Rect>()
+            val vectors = pipeline.embeddings(photo, timings, boxes) { stage, done, total ->
+                val text = if (stage == "Matching") "Matching $done of $total" else "Detecting faces… $total found"
+                _state.update { it.copy(progress = text) }
+            }
             val t0 = SystemClock.elapsedRealtime()
             val result = m.matchPhoto(vectors)
             timings.matchMs += SystemClock.elapsedRealtime() - t0
             vectors.forEach { it.fill(0f) }
+            if (boxes.size > (evidence?.faces?.size ?: -1)) keepEvidence(photo, boxes, result.matches)
             for (match in result.matches) {
                 if (match.score > (best[match.pseudonym] ?: -1f)) best[match.pseudonym] = match.score
             }
             _state.update {
                 it.copy(photos = timings.photos, facesSeen = timings.faces,
-                    unknownFaces = it.unknownFaces + result.unmatchedFaces, students = rows())
+                    unknownFaces = it.unknownFaces + result.unmatchedFaces, students = rows(), evidence = evidence)
             }
         } finally {
             photo.eraseColor(0)
             photo.recycle()
         }
+    }
+
+    /** Keep a copy of the photo with the most faces, long edge <= 1600 px, boxes scaled to match. */
+    private fun keepEvidence(photo: Bitmap, boxes: List<Rect>, matches: List<com.edge.attendance.face.Match>) {
+        evidence?.bitmap?.eraseColor(0)
+        val s = min(1f, EVIDENCE_EDGE / max(photo.width, photo.height))
+        val copy = if (s == 1f) photo.copy(Bitmap.Config.ARGB_8888, true)
+        else Bitmap.createScaledBitmap(photo, (photo.width * s).roundToInt(), (photo.height * s).roundToInt(), true)
+        val byFace = matches.associateBy { it.face }
+        evidence = EvidencePhoto(copy, boxes.mapIndexed { i, b ->
+            val r = Rect((b.left * s).roundToInt(), (b.top * s).roundToInt(), (b.right * s).roundToInt(), (b.bottom * s).roundToInt())
+            FaceBox(r, byFace[i]?.pseudonym, byFace[i]?.score)
+        })
+    }
+
+    private fun evidenceBody(present: Set<String>): Evidence? {
+        val e = evidence ?: return null
+        var q = 80
+        var jpeg: ByteArray
+        do { // normally well under 2 MB at 80; step down for pathological photos
+            jpeg = ByteArrayOutputStream().also { e.bitmap.compress(Bitmap.CompressFormat.JPEG, q, it) }.toByteArray()
+            q -= 10
+        } while (jpeg.size >= 2_000_000 && q >= 50)
+        if (jpeg.size >= 2_000_000) return null // the MEC rejects > 2 MB; attendance matters more than evidence
+        return Evidence(Base64.encodeToString(jpeg, Base64.NO_WRAP), e.bitmap.width, e.bitmap.height, e.faces.map {
+            EvidenceFace(listOf(it.box.left, it.box.top, it.box.width(), it.box.height()), it.pseudonym?.takeIf { p -> p in present }, it.score)
+        })
     }
 
     fun toReview() = _state.update { it.copy(screen = Screen.REVIEW, students = rows()) }
@@ -301,7 +356,7 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
         val s = session ?: return@launchOp
         val deviceId = prefs.deviceId(username, prefs.mecUrl) ?: error("device not registered")
         val present = rows().filter { it.markedPresent }.map { it.pseudonym }
-        val resp = mec().submit(deviceId, s.session_id, s.nonce, present, metrics())
+        val resp = mec().submit(deviceId, s.session_id, s.nonce, present, metrics(), evidenceBody(present.toSet()))
         var uploaded = true
         val forwarded = try {
             val r = portal().postReceipt(resp.receipt)
@@ -316,7 +371,7 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
         val photoCount = timings.photos
         endSession()
         _state.update {
-            it.copy(screen = Screen.DONE, result = forwarded, submittedPresent = present.size, submittedAbsent = absentCount,
+            it.copy(screen = Screen.DONE, evidence = null, result = forwarded, submittedPresent = present.size, submittedAbsent = absentCount,
                 submittedPhotos = photoCount, uploaded = uploaded, pendingUploads = receipts.all().size)
         }
     }
@@ -341,7 +396,7 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
 
     fun cancelSession() {
         endSession()
-        _state.update { it.copy(screen = Screen.SECTIONS, students = emptyList()) }
+        _state.update { it.copy(screen = Screen.SECTIONS, students = emptyList(), evidence = null) }
     }
 
     fun backToSections() = _state.update { it.copy(screen = Screen.SECTIONS, result = null) }
@@ -352,6 +407,7 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
         matcher = null
         session = null
         roster = emptyList()
+        evidence = null // dropped for GC; not erased because the exiting Review screen may still draw it
         best.clear()
         overrides.clear()
     }
@@ -361,5 +417,5 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
         pipeline.close()
     }
 
-    private companion object { const val TAG = "Attendance" }
+    private companion object { const val TAG = "Attendance"; const val EVIDENCE_EDGE = 1600f }
 }

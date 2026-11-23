@@ -6,6 +6,7 @@ receipt -> portal records present/absent -> teacher dashboard.
 """
 from __future__ import annotations
 
+import base64
 import time
 
 import numpy as np
@@ -18,6 +19,7 @@ from portal.app import create_app as create_portal
 
 from conftest import PASSWORD, new_device, random_embedding
 
+JPEG = b"\xff\xd8\xff\xe0" + b"photo" * 40
 STUDENTS = [("22i-0001", "Ayesha Khan"), ("22i-0002", "Bilal Ahmed"), ("22i-0003", "Sana Malik")]
 
 
@@ -75,7 +77,9 @@ def test_end_to_end_attendance(settings):
     # --- phone: signed submit to MEC -> receipt -> portal
     body, sig = phone.sign({"device_id": phone.device_id, "session_id": session["session_id"],
                             "nonce": session["nonce"], "timestamp": int(time.time()), "present": present,
-                            "metrics": {"faces": 3, "match_ms": 1}})
+                            "metrics": {"faces": 3, "match_ms": 1},
+                            "evidence": {"jpeg_b64": base64.b64encode(JPEG).decode(), "width": 800, "height": 600,
+                                         "faces": [{"box": [10, 10, 50, 50], "pseudonym": present[0], "score": 0.7}]}})
     r = mec.post(f"/sessions/{session['session_id']}/attendance", content=body, headers={"X-Signature": sig})
     assert r.status_code == 200, r.text
     r = portal.post("/api/attendance/receipts", json={"receipt": r.json()["receipt"]})
@@ -87,6 +91,18 @@ def test_end_to_end_attendance(settings):
     assert "Ayesha Khan" in page and "Bilal Ahmed" in page and "2/3" in page
     csv_rows = portal.get("/sections/EDGE-A/export.csv").text.splitlines()
     assert [row.split(",")[-1] for row in csv_rows[1:]] == ["present", "absent", "present"]
+
+    # --- appeal: Bilal was absent; the portal fetches the photo from the MEC as the teacher
+    portal.app.state.fetch_evidence = lambda tid, sid: mec.get(
+        f"/sessions/{sid}/evidence", headers={"Authorization": f"Bearer {access}"}).json()
+    store.set_student_password("22i-0002", "22i-0002")
+    portal.cookies.clear()
+    portal.post("/student/login", data={"username": "22i-0002", "password": "22i-0002"})
+    portal.post("/student/appeals", data={"session_id": session["session_id"], "reason": "I was there"})
+    portal.cookies.clear()
+    portal.post("/login", data={"username": "teacher1", "password": PASSWORD})
+    assert "face-box" in portal.get("/appeals/1").text
+    assert portal.get("/appeals/1/evidence.jpg").content == JPEG
 
     # --- separation of data: no names in the MEC, no vectors in the portal
     mec_db = b"".join(p.read_bytes() for p in settings.mec_dir.glob("mec.db*"))

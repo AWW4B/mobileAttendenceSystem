@@ -2,6 +2,7 @@ package com.edge.attendance.face
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Rect
 import android.os.SystemClock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -25,15 +26,20 @@ class FacePipeline(context: Context) : Closeable {
     private val embedderLazy = lazy { Embedder(context.applicationContext) }
     private val embedder by embedderLazy
 
-    suspend fun embeddings(photo: Bitmap, timings: PipelineTimings): List<FloatArray> {
+    /** One vector per detected face, in detection order; [boxes] has the matching boxes. [onProgress] gets (stage, done, total). */
+    suspend fun embeddings(
+        photo: Bitmap, timings: PipelineTimings, boxes: MutableList<Rect>, onProgress: (String, Int, Int) -> Unit = { _, _, _ -> },
+    ): List<FloatArray> {
         val t0 = SystemClock.elapsedRealtime()
         val faces = detector.detect(photo)
         val t1 = SystemClock.elapsedRealtime()
+        onProgress("Detecting faces", faces.size, faces.size)
+        boxes += faces.map { it.box }
         val vectors = withContext(Dispatchers.Default) {
-            faces.map { face ->
+            faces.mapIndexed { i, face ->
                 val aligned = Aligner.align(photo, face.landmarks)
                 try {
-                    embedder.embed(aligned)
+                    embedder.embed(aligned).also { onProgress("Matching", i + 1, faces.size) }
                 } finally {
                     aligned.eraseColor(0)
                     aligned.recycle()

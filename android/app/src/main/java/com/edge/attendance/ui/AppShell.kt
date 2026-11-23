@@ -1,6 +1,5 @@
 package com.edge.attendance.ui
 
-import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -28,7 +27,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.edge.attendance.ui.screens.CaptureScreen
@@ -40,6 +38,7 @@ import com.edge.attendance.ui.screens.ReviewScreen
 import com.edge.attendance.ui.theme.EdgeTheme
 import com.edge.attendance.ui.theme.Motion
 import com.edge.attendance.ui.theme.StatusBarIcons
+import com.edge.attendance.ui.theme.rememberReduceMotion
 
 @Composable
 fun AttendanceApp(vm: AttendanceViewModel) {
@@ -47,11 +46,7 @@ fun AttendanceApp(vm: AttendanceViewModel) {
         val state by vm.state.collectAsStateWithLifecycle()
         val snackbar = remember { SnackbarHostState() }
         val darkTheme = isSystemInDarkTheme()
-        val context = LocalContext.current
-        // Honour the system "Remove animations" setting: swap movement for an instant cut.
-        val reduceMotion = remember {
-            Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
-        }
+        val reduceMotion = rememberReduceMotion()
 
         // System Back always steps out of the current flow; it never traps the user.
         BackHandler(enabled = state.screen != Screen.LOGIN && !(state.screen == Screen.SECTIONS && state.tab == Tab.SECTIONS)) { vm.back() }

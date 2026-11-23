@@ -1,6 +1,6 @@
 # Product
 
-**Rollbook** is face-recognition attendance for university teachers. A teacher photographs the class on an Android phone. Recognition runs on the phone, a campus server holds encrypted face templates, and a web portal records and presents attendance. Photos never leave the phone.
+**Rollbook** is face-recognition attendance for university teachers. A teacher photographs the class on an Android phone. Recognition runs on the phone, a campus server holds encrypted face templates, and a web portal records and presents attendance. The class photo is kept encrypted on the campus server for 30 days, only as evidence for appeals.
 
 The name is a working title (a rollbook is the physical register teachers mark). It lives in two places only: `server/portal/templates/base.html` and `android/app/src/main/res/values/strings.xml`.
 
@@ -25,7 +25,9 @@ University professors and teaching staff: educated, experienced, comfortable wit
 | Sign in | yes | yes | built |
 | Sections / overview | yes | yes | built |
 | Attendance register, corrections, CSV export | yes | | built |
-| Capture, on-device matching, review, submit | | yes | built |
+| Capture, on-device matching, review, submit (with evidence photo) | | yes | built |
+| Student sign-in, status, appeals | yes | | built |
+| Appeals review (photo with face boxes, accept / reject) | yes | | built |
 | Upload queue | | yes | built (queue + worker) |
 | Device and server settings | | yes | built |
 | Sessions (list, detail) | preview | | not built |

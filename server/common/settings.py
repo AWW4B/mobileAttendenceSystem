@@ -23,6 +23,9 @@ class Settings:
     receipt_ttl_s: int = 7 * 24 * 3600  # phone may hold a receipt offline this long
     request_clock_skew_s: int = 120     # tolerated skew for signed device requests
     max_metrics_bytes: int = 8192       # cap on research metrics attached to a submission
+    evidence_retention_s: int = 30 * 24 * 3600  # class photo kept on the MEC for appeals
+    mec_url: str = "https://localhost:8000"     # portal -> MEC (evidence fetch)
+    mec_ca: str | None = None                   # CA / pinned cert for mec_url; None = system CAs
 
     @property
     def portal_dir(self) -> Path:
@@ -39,4 +42,6 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        return cls(data_dir=Path(os.environ.get("ATTEND_DATA_DIR", DEFAULT_DATA_DIR)))
+        return cls(data_dir=Path(os.environ.get("ATTEND_DATA_DIR", DEFAULT_DATA_DIR)),
+                   mec_url=os.environ.get("ATTEND_MEC_URL", cls.mec_url),
+                   mec_ca=os.environ.get("ATTEND_MEC_CA") or None)

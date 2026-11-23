@@ -1,4 +1,4 @@
-"""MEC database. Holds no images, names or roll numbers: pseudonyms only."""
+"""MEC database. Holds no names or roll numbers: pseudonyms only. Class photos are stored encrypted."""
 from __future__ import annotations
 
 import json
@@ -49,6 +49,17 @@ CREATE TABLE IF NOT EXISTS attendance (
     session_id  TEXT NOT NULL REFERENCES sessions(session_id),
     pseudonym   TEXT NOT NULL,
     PRIMARY KEY (session_id, pseudonym)
+);
+CREATE TABLE IF NOT EXISTS evidence (       -- class photo kept for appeals, AES-GCM encrypted
+    session_id  TEXT PRIMARY KEY REFERENCES sessions(session_id),
+    sha256      TEXT NOT NULL,
+    width       INTEGER NOT NULL,
+    height      INTEGER NOT NULL,
+    faces_json  TEXT NOT NULL,
+    nonce       BLOB NOT NULL,
+    ciphertext  BLOB NOT NULL,
+    created_at  INTEGER NOT NULL,
+    expires_at  INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS audit (
     id      INTEGER PRIMARY KEY,
@@ -168,9 +179,12 @@ class MecStore:
         with self._conn() as c:
             return c.execute("SELECT * FROM sessions WHERE session_id = ?", (session_id,)).fetchone()
 
-    def submit(self, session_id: str, present: list[str], metrics: dict | None, receipt: str) -> bool:
-        """Record attendance once. False if the session was already submitted."""
+    def submit(self, session_id: str, present: list[str], metrics: dict | None, receipt: str,
+               evidence: tuple | None = None) -> bool:
+        """Record attendance once. False if the session was already submitted.
+        evidence = (sha256, width, height, faces_json, nonce, ciphertext, expires_at)."""
         with self._conn() as c:
+            c.execute("DELETE FROM evidence WHERE expires_at < ?", (int(time.time()),))
             cur = c.execute(
                 """UPDATE sessions SET submitted_at=?, metrics=?, receipt=?
                    WHERE session_id=? AND submitted_at IS NULL""",
@@ -182,7 +196,18 @@ class MecStore:
                 "INSERT INTO attendance(session_id, pseudonym) VALUES (?,?)",
                 [(session_id, p) for p in present],
             )
+            if evidence:
+                c.execute(
+                    """INSERT INTO evidence(session_id, sha256, width, height, faces_json, nonce, ciphertext,
+                                             created_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (session_id, *evidence[:6], int(time.time()), evidence[6]),
+                )
         return True
+
+    def get_evidence(self, session_id: str) -> sqlite3.Row | None:
+        with self._conn() as c:
+            return c.execute("SELECT * FROM evidence WHERE session_id = ? AND expires_at > ?",
+                             (session_id, int(time.time()))).fetchone()
 
     def present_for(self, session_id: str) -> list[str]:
         with self._conn() as c:
