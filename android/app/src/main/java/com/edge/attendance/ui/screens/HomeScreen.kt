@@ -46,6 +46,8 @@ import com.edge.attendance.ui.AttendanceViewModel
 import com.edge.attendance.ui.Tab
 import com.edge.attendance.ui.UiState
 import com.edge.attendance.ui.components.ChipKind
+import com.edge.attendance.ui.components.EVIDENCE_NOTE
+import com.edge.attendance.Level
 import com.edge.attendance.ui.components.EmptyState
 import com.edge.attendance.ui.components.Glyph
 import com.edge.attendance.ui.components.GroupHeader
@@ -116,7 +118,12 @@ private fun SectionsTab(state: UiState, vm: AttendanceViewModel) {
                 }
             }
         }
-        if (state.pendingUploads > 0) item { PendingBanner(state.pendingUploads) { vm.setTab(Tab.UPLOADS) } }
+        if (state.deviceChecks.any { it.level == Level.FAIL }) item {
+            NoticeBanner("This phone is below the minimum for reliable recognition. You can still try.", "Details", { vm.setTab(Tab.DEVICE) }, fail = true)
+        }
+        if (state.pendingUploads > 0) item {
+            NoticeBanner(if (state.pendingUploads == 1) "1 result is waiting to upload" else "${state.pendingUploads} results are waiting to upload", "View", { vm.setTab(Tab.UPLOADS) })
+        }
         if (state.sections.isEmpty()) {
             item {
                 EmptyState(
@@ -136,19 +143,17 @@ private fun SectionsTab(state: UiState, vm: AttendanceViewModel) {
 }
 
 @Composable
-private fun PendingBanner(count: Int, onView: () -> Unit) {
+private fun NoticeBanner(text: String, action: String, onClick: () -> Unit, fail: Boolean = false) {
     val cs = MaterialTheme.colorScheme
+    val fg = if (fail) cs.error else cs.tertiary
     Surface(
-        color = cs.tertiaryContainer, shape = RoundedCornerShape(12.dp),
+        color = if (fail) cs.errorContainer else cs.tertiaryContainer, shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
     ) {
         Row(Modifier.padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Glyph(R.drawable.ic_cloud_up, size = 20.dp, tint = cs.tertiary)
-            Text(
-                if (count == 1) "1 result is waiting to upload" else "$count results are waiting to upload",
-                modifier = Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.bodyMedium, color = cs.tertiary,
-            )
-            TextButton(onClick = onView) { Text("View", color = cs.tertiary, style = MaterialTheme.typography.labelLarge) }
+            Glyph(if (fail) R.drawable.ic_alert else R.drawable.ic_cloud_up, size = 20.dp, tint = fg)
+            Text(text, modifier = Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.bodyMedium, color = fg)
+            TextButton(onClick = onClick) { Text(action, color = fg, style = MaterialTheme.typography.labelLarge) }
         }
     }
 }
@@ -237,9 +242,27 @@ private fun DeviceTab(state: UiState, vm: AttendanceViewModel) {
                 if (state.deviceRegistered) StatusChip("Active", ChipKind.Present) else StatusChip("Not registered", ChipKind.Review)
             }
         }
+        GroupHeader("Requirements")
+        ListSurface {
+            state.deviceChecks.forEachIndexed { i, c ->
+                if (i > 0) Hairline()
+                Row(
+                    Modifier.fillMaxWidth().defaultMinSize(minHeight = 48.dp).padding(horizontal = 20.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(c.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    Text(c.value, style = MonoBody, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(end = 12.dp))
+                    when (c.level) {
+                        Level.PASS -> StatusChip("OK", ChipKind.Present)
+                        Level.WARN -> StatusChip("Weak", ChipKind.Review)
+                        Level.FAIL -> StatusChip("Too low", ChipKind.Absent)
+                    }
+                }
+            }
+        }
         GroupHeader("Privacy")
         Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            PrivacyPoint(R.drawable.ic_camera, "Photos stay in memory and are discarded after processing.")
+            PrivacyPoint(R.drawable.ic_camera, EVIDENCE_NOTE)
             PrivacyPoint(R.drawable.ic_lock, "Screenshots and backups of this app are blocked.")
             PrivacyPoint(R.drawable.ic_shield, "Requests are signed by a key that never leaves this phone's secure hardware.")
         }

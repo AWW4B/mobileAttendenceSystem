@@ -1,20 +1,21 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
+{% set student = student|default(false) %}
 {% block title %}Sign in · {{ super() }}{% endblock %}
 {% block body %}
 <div class="signin">
   <section class="signin-form">
     <a class="brand" href="/" aria-label="Rollbook home">{{ m.icon("mark") }}<span>Rollbook</span></a>
-    <form method="post" action="/login" data-signin>
+    <form method="post" action="{{ '/student/login' if student else '/login' }}" data-signin>
       <div>
-        <h1>Sign in</h1>
-        <p class="muted">Review, correct and export the attendance you take in the mobile app.</p>
+        <h1>{{ "Student sign in" if student else "Sign in" }}</h1>
+        <p class="muted">{{ "See your attendance and appeal an absence." if student else "Review, correct and export the attendance you take in the mobile app." }}</p>
       </div>
       {% if error %}
       <p class="error-text" id="signin-error" role="alert">{{ m.icon("alert", "icon icon-sm") }}<span>{{ error }}</span></p>
       {% endif %}
       <div class="field">
-        <label for="username">Username</label>
+        <label for="username">{{ "Roll number" if student else "Username" }}</label>
         <input class="input" id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus
                {% if error %}aria-invalid="true" aria-describedby="signin-error"{% endif %}>
       </div>
@@ -24,13 +25,14 @@
                {% if error %}aria-invalid="true" aria-describedby="signin-error"{% endif %}>
       </div>
       <button class="btn btn-primary" type="submit"><span>Sign in</span></button>
+      <p class="muted small">{% if student %}<a href="/login">Teacher? Sign in here</a>{% else %}<a href="/student/login">Student? Sign in here</a>{% endif %}</p>
     </form>
   </section>
   <aside class="signin-aside" aria-label="How attendance is recorded">
     <ol class="flow">
       <li>{{ m.icon("camera") }}<div><strong>Photograph the class</strong><span>Take one or more photos from the mobile app, from the front of the room.</span></div></li>
-      <li>{{ m.icon("face") }}<div><strong>Faces are matched on the phone</strong><span>Recognition runs on your device. Photos are discarded as soon as they are processed and never uploaded.</span></div></li>
-      <li>{{ m.icon("shield") }}<div><strong>Verified, then recorded here</strong><span>The campus server checks the signed result. This portal stores who was present, and nothing else.</span></div></li>
+      <li>{{ m.icon("face") }}<div><strong>Faces are matched on the phone</strong><span>Recognition runs on your device. The class photo is kept encrypted on the campus server for 30 days, only to settle appeals.</span></div></li>
+      <li>{{ m.icon("shield") }}<div><strong>Verified, then recorded here</strong><span>The campus server checks the signed result. This portal stores who was present, and no photos.</span></div></li>
     </ol>
   </aside>
 </div>

@@ -28,6 +28,28 @@ import com.edge.attendance.ui.AttendanceViewModel
 import com.edge.attendance.ui.Status
 import com.edge.attendance.ui.StudentRow
 import com.edge.attendance.ui.UiState
+import com.edge.attendance.ui.EvidencePhoto
+import com.edge.attendance.ui.components.EVIDENCE_NOTE
+import com.edge.attendance.ui.components.animatedCount
+import com.edge.attendance.ui.theme.Motion
+import com.edge.attendance.ui.theme.rememberReduceMotion
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import com.edge.attendance.ui.components.ChipKind
 import com.edge.attendance.ui.components.Glyph
 import com.edge.attendance.ui.components.GroupHeader
@@ -49,7 +71,8 @@ private val GROUPS = listOf(
 @Composable
 fun ReviewScreen(state: UiState, vm: AttendanceViewModel) {
     StatusBarIcons(lightIcons = isSystemInDarkTheme())
-    val marked = state.students.count { it.markedPresent }
+    val marked = animatedCount(state.students.count { it.markedPresent })
+    val absent = animatedCount(state.students.count { !it.markedPresent })
     val byStatus = state.students.groupBy { it.status }
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -63,7 +86,7 @@ fun ReviewScreen(state: UiState, vm: AttendanceViewModel) {
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(marked.toString(), style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    "of ${state.students.size} marked present", style = MaterialTheme.typography.bodyLarge,
+                    "of ${state.students.size} marked present · $absent absent", style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 3.dp),
                 )
             }
@@ -73,6 +96,7 @@ fun ReviewScreen(state: UiState, vm: AttendanceViewModel) {
             )
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+            state.evidence?.let { item(key = "photo") { EvidencePhotoView(it, state.students) } }
             for ((status, label) in GROUPS) {
                 val rows = byStatus[status].orEmpty()
                 if (rows.isEmpty()) continue
@@ -93,6 +117,45 @@ fun ReviewScreen(state: UiState, vm: AttendanceViewModel) {
             SecondaryButton("More photos", onClick = vm::backToCapture, enabled = !state.busy)
             PrimaryButton("Submit attendance", onClick = vm::submit, loading = state.busy, modifier = Modifier.weight(1f))
         }
+    }
+}
+
+/** The class photo with face boxes drawing in one after another (~25 ms apart, 600 ms at most). */
+@Composable
+private fun EvidencePhotoView(photo: EvidencePhoto, students: List<StudentRow>) {
+    val cs = MaterialTheme.colorScheme
+    val byId = remember(students) { students.associateBy { it.pseudonym } }
+    val n = photo.faces.size
+    val stagger = minOf(25f, 420f / maxOf(n, 1))
+    val total = stagger * maxOf(n - 1, 0) + Motion.Base
+    val t = remember(photo) { Animatable(0f) }
+    val reduce = rememberReduceMotion()
+    LaunchedEffect(photo) { if (reduce) t.snapTo(total) else t.animateTo(total, tween(total.toInt(), easing = LinearEasing)) }
+    Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.aspectRatio(photo.bitmap.width.toFloat() / photo.bitmap.height).clip(RoundedCornerShape(12.dp))) {
+                Image(photo.bitmap.asImageBitmap(), "Class photo with detected faces", Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+                Canvas(Modifier.fillMaxSize()) {
+                    val k = size.width / photo.bitmap.width
+                    photo.faces.forEachIndexed { i, f ->
+                        val row = f.pseudonym?.let(byId::get)
+                        val color = when {
+                            row == null || !row.markedPresent -> cs.error
+                            row.status == Status.REVIEW -> cs.tertiary
+                            else -> cs.primary
+                        }
+                        val a = ((t.value - i * stagger) / Motion.Base).coerceIn(0f, 1f)
+                        drawRect(color.copy(alpha = a), Offset(f.box.left * k, f.box.top * k), Size(f.box.width() * k, f.box.height() * k), style = Stroke(2.dp.toPx()))
+                    }
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            StatusChip("Matched", ChipKind.Present)
+            StatusChip("Check", ChipKind.Review)
+            StatusChip("Unmatched", ChipKind.Absent)
+        }
+        Text(EVIDENCE_NOTE, style = MaterialTheme.typography.bodySmall, color = cs.onSurfaceVariant)
     }
 }
 

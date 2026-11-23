@@ -7,6 +7,7 @@
   python -m portal.cli enroll <section_id> <roll_no> [<roll_no> ...]
   python -m portal.cli import-csv <file.csv> <section_id>        (columns: roll_no,name)
   python -m portal.cli list <section_id> <teacher_username>
+  python -m portal.cli set-student-password <roll_no> <password>
   python -m portal.cli demo                                      (teacher "demo", password "demo-password")
 """
 from __future__ import annotations
@@ -33,6 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     t = sub.add_parser("add-teacher"); t.add_argument("username"); t.add_argument("name")
     t.add_argument("--password", help="omit to be prompted (recommended)")
     s = sub.add_parser("add-student"); s.add_argument("roll_no"); s.add_argument("name")
+    sp = sub.add_parser("set-student-password"); sp.add_argument("roll_no"); sp.add_argument("password")
     sec = sub.add_parser("add-section"); sec.add_argument("id"); sec.add_argument("title"); sec.add_argument("teacher")
     e = sub.add_parser("enroll"); e.add_argument("section_id"); e.add_argument("roll_nos", nargs="+")
     c = sub.add_parser("import-csv"); c.add_argument("file"); c.add_argument("section_id")
@@ -54,7 +56,9 @@ def main(argv: list[str] | None = None) -> int:
             if store.pseudonym_for(roll) is None:
                 store.add_student(roll, name)
             store.enroll("EDGE-A", roll)
+            store.set_student_password(roll, roll)
         print("Demo data ready: login demo / demo-password, section EDGE-A with 5 students.")
+        print("Students sign in at /student/login with their roll number as password.")
         print("Enroll their faces with enrollment/enroll.py using folders named by roll number.")
     elif args.cmd == "add-teacher":
         pw = args.password or getpass.getpass("Password (min 8 chars): ")
@@ -63,6 +67,11 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd == "add-student":
         store.add_student(args.roll_no, args.name)
         print(f"Student {args.roll_no} added.")
+    elif args.cmd == "set-student-password":
+        if not store.set_student_password(args.roll_no, args.password):
+            print("Unknown roll number.", file=sys.stderr)
+            return 1
+        print(f"Password set for {args.roll_no}.")
     elif args.cmd == "add-section":
         store.add_section(args.id, args.title, args.teacher)
         print(f"Section {args.id} added.")

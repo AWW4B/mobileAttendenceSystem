@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% set nav = "appeals" %}
+{% block title %}Appeals · {{ super() }}{% endblock %}
+{% block crumbs %}<li><span aria-current="page">Appeals</span></li>{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Appeals</h1>
+    <p>Students appeal an absence mark. Check the class photo, then accept or reject.</p>
+  </div>
+</div>
+<section class="panel">
+  {% if appeals %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th scope="col">Student</th><th scope="col">Section</th><th scope="col">Session</th><th scope="col">Status</th><th scope="col"><span class="sr-only">Open</span></th></tr></thead>
+      <tbody>
+      {% for a in appeals %}
+        <tr>
+          <td class="name">{{ a.name }}<div class="id xs muted mono">{{ a.roll_no }}</div></td>
+          <td>{{ a.section_title }}</td>
+          <td>{{ a.taken_at|when }}</td>
+          <td>{{ m.chip("review" if a.status == "open" else ("present" if a.status == "accepted" else "absent"), a.status|capitalize) }}</td>
+          <td><a class="row-link" href="/appeals/{{ a.id }}">Open</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty"><h2>No appeals yet</h2></div>
+  {% endif %}
+</section>
+{% endblock %}

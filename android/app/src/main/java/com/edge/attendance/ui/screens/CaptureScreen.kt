@@ -25,12 +25,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import com.edge.attendance.ui.components.EVIDENCE_NOTE
+import com.edge.attendance.ui.theme.Motion
+import com.edge.attendance.ui.theme.rememberReduceMotion
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -72,6 +81,10 @@ fun CaptureScreen(state: UiState, vm: AttendanceViewModel) {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
     LaunchedEffect(Unit) { if (!granted) launcher.launch(Manifest.permission.CAMERA) }
     val controller = remember { CameraController() }
+    val flash = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val reduceMotion = rememberReduceMotion()
     StatusBarIcons(lightIcons = true)
 
     val matched = state.students.count { it.status == Status.PRESENT }
@@ -113,14 +126,15 @@ fun CaptureScreen(state: UiState, vm: AttendanceViewModel) {
             }
             if (state.busy) {
                 Text(
-                    "Matching faces on this phone",
+                    state.progress ?: "Processing on this phone…",
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 20.dp)
                         .clip(RoundedCornerShape(8.dp)).background(CameraColors.Background.copy(alpha = 0.7f)).padding(horizontal = 12.dp, vertical = 6.dp),
                     style = MaterialTheme.typography.labelMedium, color = CameraColors.OnBackground,
                 )
             }
+            Box(Modifier.fillMaxSize().graphicsLayer { alpha = flash.value }.background(Color.White)) // shutter flash
             Text(
-                "Photograph the whole class. Images stay in memory and are discarded after processing.",
+                "Photograph the whole class. $EVIDENCE_NOTE",
                 modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 40.dp, vertical = 52.dp),
                 style = MaterialTheme.typography.bodyMedium, color = CameraColors.Muted, textAlign = TextAlign.Center,
             )
@@ -137,6 +151,8 @@ fun CaptureScreen(state: UiState, vm: AttendanceViewModel) {
                 ) { Text("Cancel", style = MaterialTheme.typography.labelLarge) }
             }
             Shutter(busy = state.busy, enabled = granted && !state.busy) {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                if (!reduceMotion) scope.launch { flash.snapTo(0.8f); flash.animateTo(0f, tween(Motion.Fast, easing = Motion.EaseOut)) }
                 controller.capture(context, onPhoto = vm::onPhoto, onError = vm::showMessage)
             }
             Box(Modifier.width(104.dp), contentAlignment = Alignment.CenterEnd) {
@@ -175,7 +191,6 @@ private fun Shutter(busy: Boolean, enabled: Boolean, onClick: () -> Unit) {
             .clickable(interactionSource = source, indication = null, enabled = enabled, role = Role.Button, onClickLabel = "Capture photo", onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        if (busy) CircularProgressIndicator(Modifier.size(28.dp), color = Color.White, strokeWidth = 3.dp)
     }
 }
 
