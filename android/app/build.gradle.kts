@@ -40,6 +40,8 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        // Default server address shown on the login screen: build-apk.ps1 passes this laptop's IP.
+        buildConfigField("String", "SERVER_IP", "\"${providers.gradleProperty("serverIp").getOrElse("192.168.1.20")}\"")
     }
 
     buildTypes {
@@ -54,6 +56,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     sourceSets["main"].assets.srcDir(edgeAssetsDir)
     androidResources {

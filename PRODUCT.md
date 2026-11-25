@@ -30,13 +30,13 @@ University professors and teaching staff: educated, experienced, comfortable wit
 | Appeals review (photo with face boxes, accept / reject) | yes | | built |
 | Upload queue | | yes | built (queue + worker) |
 | Device and server settings | | yes | built |
-| Sessions (list, detail) | preview | | not built |
-| Students and face-template status | preview | | not built |
-| Security (devices, activity log) | preview | | not built |
-| Evaluation (accuracy, timing, placement) | preview | | not built |
-| Settings (thresholds, policy, retention) | preview | | not built |
+| Sessions (list, detail with class photo, CSV, live update) | yes | | built |
+| Students, sections and photo enrollment | yes | | built |
+| Security (devices, activity log) | yes | | built |
+| Evaluation (phone timings, corrections, accepted appeals, CSV) | yes | | built |
+| Settings (match thresholds) | yes | | built |
 
-"Preview" modules render realistic sample data, are labelled "Sample data" in the interface, read and write nothing, and are wired in `server/portal/preview.py` and `preview_data.py`.
+Every web module runs on real data from the portal database and the campus server. If the campus server is down, the pages say so.
 
 ## Principles
 

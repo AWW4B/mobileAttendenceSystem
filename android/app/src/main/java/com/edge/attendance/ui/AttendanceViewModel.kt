@@ -25,6 +25,7 @@ import com.edge.attendance.data.ReceiptQueue
 import com.edge.attendance.data.ReceiptUploadWorker
 import com.edge.attendance.data.RosterEntry
 import com.edge.attendance.data.Section
+import com.edge.attendance.face.wipe
 import com.edge.attendance.face.FacePipeline
 import com.edge.attendance.face.Matcher
 import com.edge.attendance.face.PipelineTimings
@@ -70,6 +71,7 @@ data class UiState(
     val message: String? = null,
     val teacherName: String? = null,
     val portalUrl: String = "",
+    val serverCode: String = "",
     val mecUrl: String = "",
     val lastUsername: String = "",
     val sections: List<Section> = emptyList(),
@@ -111,7 +113,7 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
     private val receipts = ReceiptQueue(app)
 
     private val _state = MutableStateFlow(
-        UiState(portalUrl = prefs.portalUrl, mecUrl = prefs.mecUrl, lastUsername = prefs.lastUsername,
+        UiState(portalUrl = prefs.portalUrl, mecUrl = prefs.mecUrl, serverCode = prefs.serverCode, lastUsername = prefs.lastUsername,
             deviceChecks = DeviceCheck.run(app))
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -164,7 +166,8 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
     fun showMessage(message: String) = _state.update { it.copy(message = message) }
 
     // ---- login -------------------------------------------------------------
-    fun login(user: String, password: String, portalUrl: String, mecUrl: String) = launchOp {
+    fun login(user: String, password: String, portalUrl: String, mecUrl: String, serverCode: String) = launchOp {
+        prefs.serverCode = serverCode
         prefs.portalUrl = portalUrl
         prefs.mecUrl = mecUrl
         val resp = portal().login(user.trim(), password)
@@ -175,7 +178,7 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
         val sections = portal().sections(resp.access_token)
         _state.update {
             it.copy(screen = Screen.SECTIONS, tab = Tab.SECTIONS, teacherName = resp.name, sections = sections,
-                portalUrl = prefs.portalUrl, mecUrl = prefs.mecUrl, lastUsername = username,
+                portalUrl = prefs.portalUrl, mecUrl = prefs.mecUrl, serverCode = prefs.serverCode, lastUsername = username,
                 pendingUploads = receipts.all().size, deviceLabel = Build.MODEL ?: "This phone",
                 deviceRegistered = prefs.deviceId(username, prefs.mecUrl) != null)
         }
@@ -191,7 +194,7 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
     fun logout() {
         endSession()
         accessToken = null
-        _state.update { UiState(portalUrl = prefs.portalUrl, mecUrl = prefs.mecUrl, lastUsername = prefs.lastUsername, deviceChecks = it.deviceChecks) }
+        _state.update { UiState(portalUrl = prefs.portalUrl, mecUrl = prefs.mecUrl, serverCode = prefs.serverCode, lastUsername = prefs.lastUsername, deviceChecks = it.deviceChecks) }
     }
 
     fun refreshSections() = launchOp {
@@ -256,6 +259,8 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
             templates = opened.templates.map { it.pseudonym to Matcher.decodeVector(it.vector) },
             permutation = opened.transform.permutation.toIntArray(),
             signs = FloatArray(opened.transform.signs.size) { opened.transform.signs[it].toFloat() },
+            accept = opened.thresholds?.accept ?: Matcher.ACCEPT,
+            review = opened.thresholds?.review ?: Matcher.REVIEW,
         )
         best.clear(); overrides.clear()
         timings = PipelineTimings()
@@ -270,8 +275,7 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
     fun onPhoto(photo: Bitmap) {
         val m = matcher
         if (m == null || _state.value.busy) {
-            photo.eraseColor(0)
-            photo.recycle()
+            photo.wipe()
             return
         }
         launchOp { processPhoto(m, photo) }
@@ -297,14 +301,13 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
                     unknownFaces = it.unknownFaces + result.unmatchedFaces, students = rows(), evidence = evidence)
             }
         } finally {
-            photo.eraseColor(0)
-            photo.recycle()
+            photo.wipe()
         }
     }
 
     /** Keep a copy of the photo with the most faces, long edge <= 1600 px, boxes scaled to match. */
     private fun keepEvidence(photo: Bitmap, boxes: List<Rect>, matches: List<com.edge.attendance.face.Match>) {
-        evidence?.bitmap?.eraseColor(0)
+        evidence?.bitmap?.takeIf { it.isMutable }?.eraseColor(0)
         val s = min(1f, EVIDENCE_EDGE / max(photo.width, photo.height))
         val copy = if (s == 1f) photo.copy(Bitmap.Config.ARGB_8888, true)
         else Bitmap.createScaledBitmap(photo, (photo.width * s).roundToInt(), (photo.height * s).roundToInt(), true)
@@ -344,7 +347,7 @@ class AttendanceViewModel(app: Application) : AndroidViewModel(app) {
             val status = when {
                 r.pseudonym !in enrolled -> Status.NOT_ENROLLED
                 score == null -> Status.ABSENT
-                score >= Matcher.ACCEPT -> Status.PRESENT
+                score >= (session?.thresholds?.accept ?: Matcher.ACCEPT) -> Status.PRESENT
                 else -> Status.REVIEW
             }
             StudentRow(r.pseudonym, r.roll_no, r.name, status, score,

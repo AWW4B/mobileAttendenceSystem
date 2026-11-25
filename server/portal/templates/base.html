@@ -12,17 +12,17 @@
 <link rel="stylesheet" href="/static/css/tokens.css">
 <link rel="stylesheet" href="/static/css/portal.css">
 </head>
-<body>
+<body{% if teacher %}{% set latest = latest_session(teacher.id) %} data-latest="{{ latest.session_id if latest else '' }}"{% if live_follow %} data-follow{% endif %}{% endif %}>
 {% include "_icons.svg" %}
 {% block body %}
 {% set nav_items = [
-  ("Workspace", [("overview", "/dashboard", "overview", "Overview", false),
-                 ("appeals", "/appeals", "alert", "Appeals", false),
-                 ("sessions", "/sessions", "sessions", "Sessions", true),
-                 ("students", "/students", "students", "Students", true)]),
-  ("Insight",   [("evaluation", "/evaluation", "chart", "Evaluation", true)]),
-  ("Account",   [("security", "/security", "shield", "Security", true),
-                 ("settings", "/settings", "settings", "Settings", true)]),
+  ("Workspace", [("overview", "/dashboard", "overview", "Overview"),
+                 ("appeals", "/appeals", "alert", "Appeals"),
+                 ("sessions", "/sessions", "sessions", "Sessions"),
+                 ("students", "/students", "students", "Students")]),
+  ("Insight",   [("evaluation", "/evaluation", "chart", "Evaluation")]),
+  ("Account",   [("security", "/security", "shield", "Security"),
+                 ("settings", "/settings", "settings", "Settings")]),
 ] %}
 <div class="app">
   <aside class="sidebar">
@@ -30,9 +30,9 @@
     <nav class="nav" aria-label="Primary">
       {% for label, items in nav_items %}
         <div class="nav-label">{{ label }}</div>
-        {% for key, href, icon, text, preview in items %}
+        {% for key, href, icon, text in items %}
           <a href="{{ href }}" title="{{ text }}"{% if nav == key %} aria-current="page"{% endif %}>
-            {{ m.icon(icon) }}<span>{{ text }}</span>{% if preview %}<span class="tag">Preview</span>{% elif key == "appeals" and teacher and open_appeals(teacher.id) %}<span class="tag">{{ open_appeals(teacher.id) }}</span>{% endif %}
+            {{ m.icon(icon) }}<span>{{ text }}</span>{% if key == "appeals" and teacher and open_appeals(teacher.id) %}<span class="tag">{{ open_appeals(teacher.id) }}</span>{% endif %}
           </a>
         {% endfor %}
       {% endfor %}

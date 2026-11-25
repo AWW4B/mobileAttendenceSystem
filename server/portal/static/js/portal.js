@@ -39,45 +39,37 @@
     menu.addEventListener("keydown", (e) => { if (e.key === "Escape") { menu.open = false; $("summary", menu).focus(); } });
   });
 
-  /* ---------- Dialogs ---------- */
-  $$("[data-open-dialog]").forEach((btn) => btn.addEventListener("click", () => {
-    const dlg = document.getElementById(btn.dataset.openDialog);
-    if (!dlg) return;
-    const label = $("[data-fill]", dlg);
-    if (label && btn.dataset.fill) label.textContent = btn.dataset.fill;
-    dlg.dataset.target = btn.dataset.fill || "";
-    dlg.showModal();
+  /* ---------- Confirm destructive forms; show progress on slow ones ---------- */
+  $$("form[data-confirm]").forEach((f) => f.addEventListener("submit", (e) => {
+    if (!window.confirm(f.dataset.confirm)) e.preventDefault();
   }));
-  $$("dialog.dlg").forEach((dlg) => {
-    dlg.addEventListener("click", (e) => { if (e.target === dlg) dlg.close(); });
-    $$("[data-close-dialog]", dlg).forEach((b) => b.addEventListener("click", () => dlg.close()));
-    $$("[data-confirm-toast]", dlg).forEach((b) => b.addEventListener("click", () => {
-      dlg.close();
-      toast(b.dataset.confirmToast.replace("{target}", dlg.dataset.target || ""));
-    }));
-  });
+  $$("form[data-busy]").forEach((f) => f.addEventListener("submit", () => {
+    const btn = $("button", f);
+    btn.classList.add("is-loading");
+    btn.setAttribute("aria-busy", "true");
+  }));
 
-  /* ---------- Tabs ---------- */
-  $$("[role=tablist]").forEach((list) => {
-    const tabs = $$("[role=tab]", list);
-    const select = (tab, focus) => {
-      tabs.forEach((t) => {
-        const on = t === tab;
-        t.setAttribute("aria-selected", on);
-        t.tabIndex = on ? 0 : -1;
-        const panel = document.getElementById(t.getAttribute("aria-controls"));
-        if (panel) panel.hidden = !on;
-      });
-      if (focus) tab.focus();
+  /* ---------- Live: a new session arrived from the phone ---------- */
+  const body = document.body;
+  if (body.hasAttribute("data-latest")) {
+    let seen = body.dataset.latest;
+    const poll = async () => {
+      try {
+        const res = await fetch("/live/latest", { credentials: "same-origin" });
+        if (res.status === 401) return; // signed out: stop polling
+        const d = res.ok ? await res.json() : null;
+        if (d && d.session_id && d.session_id !== seen) {
+          seen = d.session_id;
+          const url = `/sessions/${encodeURIComponent(d.session_id)}`;
+          const typing = document.activeElement && document.activeElement.matches("input, textarea, select");
+          if (body.hasAttribute("data-follow") && !typing) { location.assign(url); return; }
+          toast(`New attendance received for ${d.section}`, { action: "Open", onAction: () => location.assign(url), timeout: 60000 });
+        }
+      } catch (err) { /* portal unreachable: try again */ }
+      setTimeout(poll, 3000);
     };
-    tabs.forEach((t, i) => {
-      t.addEventListener("click", () => select(t));
-      t.addEventListener("keydown", (e) => {
-        const dir = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
-        if (dir) { e.preventDefault(); select(tabs[(i + dir + tabs.length) % tabs.length], true); }
-      });
-    });
-  });
+    setTimeout(poll, 3000);
+  }
 
   /* ---------- Sign in ---------- */
   const signin = $("form[data-signin]");
@@ -88,7 +80,7 @@
     $("span", btn).textContent = "Signing in";
   });
 
-  /* ---------- Generic table filtering (students, sessions, devices) ---------- */
+  /* ---------- Generic table filtering (students, sessions) ---------- */
   $$("[data-filter-table]").forEach((input) => {
     const table = document.getElementById(input.dataset.filterTable);
     const empty = $(".empty-row", table);
@@ -100,38 +92,6 @@
       if (empty) empty.classList.toggle("is-hidden", shown > 0);
     });
   });
-
-  /* ---------- Chart tooltips ---------- */
-  const charts = $$(".chart [data-tip]");
-  if (charts.length) {
-    const tip = document.createElement("div");
-    tip.className = "chart-tip"; tip.setAttribute("role", "tooltip");
-    document.body.append(tip);
-    const show = (el, x, y) => {
-      tip.innerHTML = el.dataset.tip;
-      tip.classList.add("on");
-      const r = tip.getBoundingClientRect();
-      tip.style.left = Math.min(Math.max(8, x + 14), window.innerWidth - r.width - 8) + "px";
-      tip.style.top = Math.max(8, y - r.height - 12) + "px";
-    };
-    charts.forEach((el) => {
-      el.addEventListener("pointermove", (e) => show(el, e.clientX, e.clientY));
-      el.addEventListener("pointerleave", () => tip.classList.remove("on"));
-      el.addEventListener("focus", () => { const b = el.getBoundingClientRect(); show(el, b.left + b.width / 2, b.top); });
-      el.addEventListener("blur", () => tip.classList.remove("on"));
-    });
-  }
-
-  /* ---------- Settings preview ---------- */
-  $$("input[type=range][data-out]").forEach((r) => {
-    const out = document.getElementById(r.dataset.out);
-    const sync = () => { out.textContent = Number(r.value).toFixed(Number(r.dataset.digits || 0)); };
-    r.addEventListener("input", sync); sync();
-  });
-  $$("[data-preview-save]").forEach((b) => b.addEventListener("click", (e) => {
-    e.preventDefault();
-    toast("Preview only. Settings are not saved until the backend is connected.");
-  }));
 
   /* ---------- Attendance register ---------- */
   const reg = $("#register");

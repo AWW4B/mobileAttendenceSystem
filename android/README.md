@@ -7,12 +7,15 @@ the campus MEC per session, held in memory only, and wiped afterwards.
 
 ## Build
 
+Shortest path: `.\setup.ps1` once, then `.\build-apk.ps1`, from the repo root. Manually:
+
 1. Install Android Studio (stable) and open this `android/` folder.
 2. From the repo root, fetch the face model (the app build copies it in):
    ```bash
    .venv/Scripts/python enrollment/fetch_models.py
    ```
-3. Generate the laptop's TLS certificate (the app pins it):
+3. Generate the laptop's TLS certificate (optional: bundles it in the app; otherwise type the server code
+   that `start.ps1` prints):
    ```bash
    cd server && ../.venv/Scripts/python scripts/gen_dev_cert.py <laptop-wifi-ip>
    ```
@@ -47,7 +50,7 @@ captures at the camera's highest still resolution.
 
 ## Using it
 
-1. Server settings on the login screen: `https://<laptop-ip>:8001` (portal)
+1. The app defaults to the address `build-apk.ps1` baked in; change it under Server settings on the login screen: `https://<laptop-ip>:8001` (portal)
    and `https://<laptop-ip>:8000` (MEC). Phone and laptop must be on the same Wi-Fi.
 2. Sign in, pick a section, photograph the class (several photos for a big
    room), review, submit.
@@ -73,5 +76,6 @@ captures at the camera's highest still resolution.
 - Templates are decoded into memory for one session and zeroed at the end.
   Faces that match nobody are dropped.
 - Requests are signed by a non-exportable Android Keystore EC key. The MEC
-  certificate is pinned.
+  certificate is pinned: built in, or matched by the typed server code (first 64
+  bits of its SHA-256).
 - Research metrics (timings, face counts, battery) contain no biometric data.

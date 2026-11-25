@@ -13,7 +13,7 @@
 {{ ns.out or "?" }}
 {%- endmacro %}
 
-{# Page-level note shown on modules whose backend is not connected yet #}
-{% macro preview_note(text="This module is showing sample data. It will switch to live records when its backend is connected.") -%}
-<div class="note" role="note">{{ icon("info") }}<span>{{ text }}</span><span class="chip plain">Sample data</span></div>
+{# Inline problem message; renders nothing without one #}
+{% macro error(text) -%}
+{% if text %}<p class="error-text" role="alert">{{ icon("alert", "icon icon-sm") }}<span>{{ text }}</span></p>{% endif %}
 {%- endmacro %}

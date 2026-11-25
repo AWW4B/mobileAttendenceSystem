@@ -26,20 +26,9 @@
   <section class="panel" aria-label="Class photo">
     <div class="panel-head"><h2>Class photo</h2></div>
     <div class="panel-body">
-      {% if ev %}
-      <div class="evidence">
-        <img src="/appeals/{{ a.id }}/evidence.jpg" alt="Class photo with detected faces" width="{{ ev.width }}" height="{{ ev.height }}">
-        {% for b in boxes %}
-        <div class="face-box{% if b.me %} me{% elif not b.label %} unmatched{% endif %}"
-             style="left:{{ b.l }}%;top:{{ b.t }}%;width:{{ b.w }}%;height:{{ b.h }}%">
-          {% if b.label %}<span>{{ b.label }}</span>{% endif %}
-        </div>
-        {% endfor %}
-      </div>
-      <p class="muted small">Solid boxes were matched to a student, dashed boxes were not. The appellant's box is highlighted.</p>
-      {% else %}
-      <p class="muted">{{ problem }}</p>
-      {% endif %}
+      {% set photo_url = "/appeals/" ~ a.id ~ "/evidence.jpg" %}
+      {% include "_evidence.html" %}
+      {% if ev %}<p class="muted small">Solid boxes were matched to a student, dashed boxes were not. The appellant's box is highlighted.</p>{% endif %}
     </div>
   </section>
 
@@ -48,7 +37,8 @@
     <form method="post" action="/appeals/{{ a.id }}/resolve" class="panel-body stack">
       <div class="field">
         <label for="note">Note to the student (required to reject)</label>
-        <textarea class="input" id="note" name="note" rows="3" maxlength="500"></textarea>
+        <textarea class="input" id="note" name="note" rows="3" maxlength="500"{% if error %} aria-invalid="true" autofocus{% endif %}></textarea>
+        {{ m.error(error) }}
       </div>
       <div class="page-actions">
         <button class="btn btn-primary" name="decision" value="accept">Accept (mark present)</button>

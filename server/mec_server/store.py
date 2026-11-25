@@ -99,6 +99,17 @@ class MecStore:
             rows = c.execute("SELECT * FROM audit ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         return [{**dict(r), "detail": json.loads(r["detail"])} for r in rows]
 
+    # ---- match thresholds ------------------------------------------------
+    def thresholds(self) -> dict | None:
+        with self._conn() as c:
+            row = c.execute("SELECT value FROM meta WHERE key='thresholds'").fetchone()
+        return json.loads(row[0]) if row else None
+
+    def set_thresholds(self, accept: float, review: float) -> None:
+        with self._conn() as c:
+            c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('thresholds', ?)",
+                      (json.dumps({"accept": accept, "review": review}),))
+
     # ---- templates -------------------------------------------------------
     def put_template(self, pseudonym: str, version: int, nonce: bytes, ct: bytes) -> None:
         with self._conn() as c:
@@ -153,6 +164,26 @@ class MecStore:
             return c.execute(
                 "UPDATE devices SET revoked=1 WHERE device_id=? AND teacher_sub=?", (device_id, teacher_sub)
             ).rowcount > 0
+
+    def devices_for(self, teacher_sub: str) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute(
+                """SELECT d.device_id, d.label, d.registered_at, d.revoked,
+                          (SELECT MAX(created_at) FROM sessions s WHERE s.device_id = d.device_id) AS last_used
+                   FROM devices d WHERE d.teacher_sub = ? ORDER BY d.registered_at DESC""",
+                (teacher_sub,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def submitted_sessions(self, teacher_sub: str) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute(
+                """SELECT s.session_id, s.section_id, s.submitted_at, s.metrics, d.label AS device_label
+                   FROM sessions s JOIN devices d ON d.device_id = s.device_id
+                   WHERE s.teacher_sub = ? AND s.submitted_at IS NOT NULL ORDER BY s.submitted_at DESC""",
+                (teacher_sub,),
+            ).fetchall()
+        return [{**dict(r), "metrics": json.loads(r["metrics"]) if r["metrics"] else None} for r in rows]
 
     # ---- grants & sessions ----------------------------------------------
     def consume_grant(self, jti: str, expires_at: int) -> bool:

@@ -11,6 +11,7 @@
     <form method="post" action="/student/logout"><button class="btn">{{ m.icon("logout", "icon icon-sm") }}Log out</button></form>
   </div>
   <div class="stack">
+  {{ m.error(error) }}
   {% for section, items in rows|groupby("section") %}
     <section class="panel">
       <div class="panel-head"><h2>{{ section }}</h2></div>

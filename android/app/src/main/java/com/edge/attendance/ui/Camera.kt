@@ -3,6 +3,7 @@ package com.edge.attendance.ui
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.util.Log
+import com.edge.attendance.face.wipe
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -84,8 +85,7 @@ private fun ImageProxy.toUprightBitmap(): Bitmap {
     val rotated = Bitmap.createBitmap(source, 0, 0, source.width, source.height,
         Matrix().apply { postRotate(degrees.toFloat()) }, true)
     if (rotated !== source) {
-        source.eraseColor(0)
-        source.recycle()
+        source.wipe()
     }
     return rotated
 }

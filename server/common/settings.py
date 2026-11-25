@@ -26,6 +26,7 @@ class Settings:
     evidence_retention_s: int = 30 * 24 * 3600  # class photo kept on the MEC for appeals
     mec_url: str = "https://localhost:8000"     # portal -> MEC (evidence fetch)
     mec_ca: str | None = None                   # CA / pinned cert for mec_url; None = system CAs
+    models_dir: Path | None = None              # face models; None = <repo>/models
 
     @property
     def portal_dir(self) -> Path:

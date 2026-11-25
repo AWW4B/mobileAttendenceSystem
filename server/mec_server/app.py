@@ -19,8 +19,11 @@ import hmac
 import json
 import re
 import secrets
+import sys
+import threading
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Request, status
@@ -46,10 +49,30 @@ MAX_EVIDENCE_BYTES = 2 * 1024 * 1024
 MAX_SUBMIT_BODY = 4 * 1024 * 1024   # evidence is base64 inside the signed body
 MAX_EVIDENCE_FACES = 200
 MAX_EVIDENCE_DIM = 4096
+MAX_PHOTO_BYTES = 25 * 1024 * 1024
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class TemplateIn(BaseModel):
     vector: list[float] = Field(min_length=EMBEDDING_DIM, max_length=EMBEDDING_DIM)
+
+
+class PhotoIn(BaseModel):
+    name: str = Field(max_length=512)
+    jpeg_b64: str   # any format OpenCV decodes, despite the name
+
+
+class EnrollIn(BaseModel):
+    photos: list[PhotoIn] = Field(min_length=1)
+
+
+class ThresholdsIn(BaseModel):
+    accept: float
+    review: float
+
+
+class PseudonymsIn(BaseModel):
+    pseudonyms: list[str] = Field(max_length=10000)
 
 
 def _check_pseudonym(p: str) -> None:
@@ -104,6 +127,41 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Attendance MEC server", version="0.2.0")
     app.state.store = store
     app.state.vault = vault
+
+    def store_template(pseudonym: str, values) -> int:
+        try:
+            vec = vault.normalize(values)
+        except InvalidVector as e:
+            raise HTTPException(400, str(e))
+        version = store.transform_version()
+        nonce, ct = vault.seal(pseudonym, version, vault.transform(version).apply(vec))
+        store.put_template(pseudonym, version, nonce, ct)
+        return version
+
+    def thresholds() -> dict:
+        saved = store.thresholds()
+        if saved:
+            return saved
+        contract = REPO_ROOT / "models" / "model_contract.json"
+        m = json.loads(contract.read_text(encoding="utf-8"))["matching"]
+        return {"accept": m["accept_threshold"], "review": m["review_band"][0]}
+
+    face_lock = threading.Lock()   # the OpenCV detector is stateful
+    engine: list = []
+
+    def face_engine() -> tuple:
+        """(face_pipeline, detector, embedder), loaded on first enrollment."""
+        if not engine:
+            try:
+                if str(REPO_ROOT / "enrollment") not in sys.path:
+                    sys.path.append(str(REPO_ROOT / "enrollment"))
+                import face_pipeline as fp
+                models = settings.models_dir or fp.MODELS_DIR
+                engine.extend((fp, fp.YuNetDetector(models / "face_detection_yunet_2023mar.onnx"),
+                               fp.OnnxEmbedder(models / fp.CONTRACT["embedder"]["file"])))
+            except (ImportError, FileNotFoundError) as e:
+                raise HTTPException(503, f"photo enrollment is not available: {e}")
+        return tuple(engine)
 
     def reject(actor: str, action: str, code: int, msg: str, **detail) -> HTTPException:
         store.audit(actor, f"rejected:{action}", reason=msg, **detail)
@@ -212,6 +270,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "transform": vault.transform(version).to_wire(),
             "templates": templates,
             "not_enrolled": sorted(not_enrolled),
+            "thresholds": thresholds(),
         }
 
     @app.post("/sessions/{session_id}/attendance")
@@ -307,15 +366,79 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def put_template(pseudonym: str, body: TemplateIn, x_admin_token: str | None = Header(default=None)) -> dict:
         require_admin(admin_token, x_admin_token)
         _check_pseudonym(pseudonym)
-        try:
-            vec = vault.normalize(body.vector)
-        except InvalidVector as e:
-            raise HTTPException(400, str(e))
-        version = store.transform_version()
-        nonce, ct = vault.seal(pseudonym, version, vault.transform(version).apply(vec))
-        store.put_template(pseudonym, version, nonce, ct)
+        version = store_template(pseudonym, body.vector)
         store.audit("admin", "template_put", pseudonym=pseudonym)
         return {"pseudonym": pseudonym, "transform_version": version}
+
+    @app.post("/admin/enroll/{pseudonym}")
+    def enroll_photos(pseudonym: str, body: EnrollIn, x_admin_token: str | None = Header(default=None)) -> dict:
+        """Build a template from photos, in memory. Photos are never written; file names are never logged."""
+        require_admin(admin_token, x_admin_token)
+        _check_pseudonym(pseudonym)
+        embeddings, problems = [], []
+        with face_lock:
+            fp, detector, embedder = face_engine()
+            for photo in body.photos:
+                embedding, problem = None, "larger than 25 MB"
+                if len(photo.jpeg_b64) <= MAX_PHOTO_BYTES * 4 // 3 + 8:
+                    try:
+                        data = base64.b64decode(photo.jpeg_b64, validate=True)
+                    except (binascii.Error, ValueError):
+                        problem = "not valid base64"
+                    else:
+                        if len(data) <= MAX_PHOTO_BYTES:
+                            embedding, problem = fp.embed_photo(data, detector, embedder)
+                if problem:
+                    problems.append(f"{photo.name}: {problem}")
+                if embedding is not None:
+                    embeddings.append(embedding)
+        if not embeddings:
+            store.audit("admin", "rejected:enroll", pseudonym=pseudonym, reason="no usable face")
+            raise HTTPException(422, {"message": "no usable face in any photo", "problems": problems})
+        tpl = fp.build_template(embeddings)
+        version = store_template(pseudonym, tpl.vector)
+        store.audit("admin", "template_enrolled", pseudonym=pseudonym, photos_used=tpl.used)
+        return {"pseudonym": pseudonym, "transform_version": version, "used": tpl.used,
+                "min_agreement": tpl.min_agreement, "problems": problems}
+
+    @app.post("/admin/templates/status")
+    def template_status(body: PseudonymsIn, x_admin_token: str | None = Header(default=None)) -> dict:
+        """{pseudonym: updated_at} for those that have a template. No vectors leave."""
+        require_admin(admin_token, x_admin_token)
+        return {r["pseudonym"]: r["updated_at"] for r in store.get_templates(body.pseudonyms)}
+
+    @app.get("/admin/devices")
+    def list_devices(teacher: str, x_admin_token: str | None = Header(default=None)) -> list[dict]:
+        require_admin(admin_token, x_admin_token)
+        return store.devices_for(teacher)
+
+    @app.delete("/admin/devices/{device_id}")
+    def admin_revoke_device(device_id: str, teacher: str,
+                            x_admin_token: str | None = Header(default=None)) -> dict:
+        require_admin(admin_token, x_admin_token)
+        if not store.revoke_device(device_id, teacher):
+            raise HTTPException(404, "device not found")
+        store.audit(f"teacher:{teacher}", "device_revoked", device_id=device_id)
+        return {"revoked": device_id}
+
+    @app.get("/admin/sessions")
+    def list_sessions(teacher: str, x_admin_token: str | None = Header(default=None)) -> list[dict]:
+        require_admin(admin_token, x_admin_token)
+        return store.submitted_sessions(teacher)
+
+    @app.get("/admin/settings")
+    def get_settings(x_admin_token: str | None = Header(default=None)) -> dict:
+        require_admin(admin_token, x_admin_token)
+        return thresholds()
+
+    @app.put("/admin/settings")
+    def put_settings(body: ThresholdsIn, x_admin_token: str | None = Header(default=None)) -> dict:
+        require_admin(admin_token, x_admin_token)
+        if not 0 < body.review <= body.accept < 1:   # also false for NaN
+            raise HTTPException(400, "thresholds must satisfy 0 < review <= accept < 1")
+        store.set_thresholds(body.accept, body.review)
+        store.audit("admin", "thresholds_changed", accept=body.accept, review=body.review)
+        return thresholds()
 
     @app.delete("/admin/templates/{pseudonym}")
     def delete_template(pseudonym: str, x_admin_token: str | None = Header(default=None)) -> dict:

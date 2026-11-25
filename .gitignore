@@ -9,10 +9,12 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+.playwright-mcp/
+OVERNIGHT_STATUS.md
 
 # Runtime data: keys, databases, TLS certs, audit logs. Never commit.
 server/data/
-data/
+/data/
 
 # Model weights (fetched with enrollment/fetch_models.py)
 models/*.onnx

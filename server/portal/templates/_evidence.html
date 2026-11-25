@@ -1,0 +1,14 @@
+{# Class photo with face boxes. Needs ev, boxes, problem, photo_url. #}
+{% if ev %}
+<div class="evidence">
+  <img src="{{ photo_url }}" alt="Class photo with detected faces" width="{{ ev.width }}" height="{{ ev.height }}">
+  {% for b in boxes %}
+  <div class="face-box{% if b.me %} me{% elif not b.label %} unmatched{% endif %}"
+       style="left:{{ b.l }}%;top:{{ b.t }}%;width:{{ b.w }}%;height:{{ b.h }}%">
+    {% if b.label %}<span>{{ b.label }}</span>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="muted">{{ problem }}</p>
+{% endif %}
