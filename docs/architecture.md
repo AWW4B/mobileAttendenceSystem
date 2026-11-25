@@ -37,6 +37,10 @@ photo as encrypted appeal evidence. The portal never holds a photo.**
 up by roll number to get the pseudonym → `PUT /admin/templates/{pseudonym}`.
 Photos are then deleted.
 
+From the web, the teacher uploads photos on the Students page instead: the
+portal passes them in memory to `POST /admin/enroll/{pseudonym}` on the MEC,
+which runs the same pipeline, stores the template and discards the photos.
+
 **Taking attendance:**
 
 1. Teacher logs in to the portal → access token.
@@ -83,6 +87,7 @@ That suits a campus edge whose internet link may be intermittent.
 | portal | `POST /api/login` | password | access token |
 | portal | `GET /api/sections` | access | teacher's sections |
 | portal | `POST /api/sections/{id}/grant` | access | one-time grant + roster |
+| portal | `GET /live/latest` | teacher cookie | newest session, polled by the web pages |
 | portal | `POST /api/attendance/receipts` | MEC signature | record attendance |
 | portal | `GET /api/admin/students/{roll}/pseudonym` | admin token | enrollment lookup |
 | portal | `/login`, `/dashboard`, `/sections/{id}` | cookie | teacher web dashboard, corrections, CSV |
@@ -95,6 +100,11 @@ That suits a campus edge whose internet link may be intermittent.
 | mec | `GET /sessions/{id}/attendance` | access | read back result + receipt |
 | mec | `GET /sessions/{id}/evidence` | access (session owner) | class photo + face boxes, audited |
 | mec | `PUT/DELETE /admin/templates/{p}` | admin token | enroll / remove template |
+| mec | `POST /admin/enroll/{p}` | admin token | template from photos, in memory |
+| mec | `POST /admin/templates/status` | admin token | which students have a template |
+| mec | `GET /admin/devices`, `DELETE /admin/devices/{id}` (`?teacher=`) | admin token | list / revoke a teacher's phones |
+| mec | `GET /admin/sessions?teacher=` | admin token | submitted sessions with metrics |
+| mec | `GET/PUT /admin/settings` | admin token | match thresholds (also in the `POST /sessions` reply) |
 | mec | `POST /admin/transform/rotate` | admin token | revoke all templates |
 | mec | `GET /admin/audit` | admin token | audit trail |
 
@@ -126,7 +136,7 @@ bytes**.
 | Lost / stolen teacher phone | Nothing cached; revoke device via `DELETE /devices/{id}`; tokens expire |
 | MEC database copied | Encrypted + transformed + pseudonymous; photos encrypted under the master key; rotate transform |
 | Insider browsing the DB | No names in MEC; audit log |
-| Campus Wi-Fi MITM | TLS + pinned self-signed cert |
+| Campus Wi-Fi MITM | TLS + pinned self-signed cert (built into the app, or matched by a typed server code: 64 bits of its SHA-256) |
 | Forged / modified app | Keystore signatures (Play Integrity is a planned addition) |
 | Holding up a printed photo | Teacher review step; liveness = future work |
 | Template inversion | Transform + no plaintext export path |

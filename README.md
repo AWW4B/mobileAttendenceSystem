@@ -21,83 +21,75 @@ controls and threat model.
 | `design/` | icon + font build, mobile design reference, font licences | frontend redesign |
 | `server/tests/test_integration.py` | end-to-end test across portal + MEC | `main` |
 
-## Setup (Windows, from the repo root)
+## Set up a server on any Windows PC
 
-```bash
-python -m venv .venv
-.venv/Scripts/python -m pip install -r server/requirements.txt -r enrollment/requirements.txt
+Needs [Git](https://git-scm.com) and [Python](https://www.python.org/downloads/) 3.10 or newer.
+
+```powershell
+git clone https://github.com/AWW4B/mobileAttendenceSystem
+```
+
+```powershell
+cd mobileAttendenceSystem
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup.ps1
+```
+
+`setup.ps1` creates the Python environment, installs the packages, downloads the
+two face models, creates your teacher account and opens the firewall (when run
+as administrator; otherwise it prints the command). Add `-Demo` for a demo
+teacher (`demo` / `demo-password`) with five students.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start.ps1
+```
+
+The portal opens at `https://localhost:8001` (accept the self-signed certificate
+warning). On the phone, open **Server settings** on the sign-in screen and enter
+the portal address, campus server address and **server code** that `start.ps1`
+prints. The phone and PC must be on the same network.
+
+**The app (APK).** One APK works with any server through the server code. To
+build it, install Android Studio (for the Android SDK) and a JDK 17 to 21, then:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build-apk.ps1
 ```
 
 Run all tests:
 
-```bash
-cd server && ../.venv/Scripts/python -m pytest -q
+```powershell
+cd server; ..\.venv\Scripts\python -m pytest -q
 ```
 
-## Run it
+## Using it
 
-All server commands run from `server/`. Keys, databases and certificates go
-to `server/data/`, which is git-ignored.
+**1. In the portal,** open **Students**: create a section, add students, and
+upload any number of photos per student (or in bulk, with filenames starting
+with the roll number, e.g. `22i-0001_2.jpg`). Photos are turned into a template
+and discarded.
 
-**1. Portal data.** Use demo data, or add your own:
+**2. On the phone,** sign in, pick the section, photograph, review, submit. An
+open portal tab shows the new session within a few seconds.
 
-```bash
-../.venv/Scripts/python -m portal.cli demo
-```
+Students sign in at `/student/login` (roll number + password, set on the
+Students page) to appeal an absence. Teachers resolve appeals under **Appeals**
+with the class photo. Match thresholds are under **Settings**.
 
-```bash
-../.venv/Scripts/python -m portal.cli add-teacher teacher1 "Dr. Example"
-../.venv/Scripts/python -m portal.cli add-section EDGE-A "Edge Computing A" teacher1
-../.venv/Scripts/python -m portal.cli import-csv students.csv EDGE-A
-```
+**Different networks:** install Tailscale on the PC and phone, run
+`.\start.ps1 -Ip <PC Tailscale address>`, and enter the printed addresses and
+server code in the app.
 
-`students.csv` has the columns `roll_no,name`.
-
-**2. TLS certificate** for the laptop's Wi-Fi IP (find it with `ipconfig`):
-
-```bash
-../.venv/Scripts/python scripts/gen_dev_cert.py 192.168.1.20
-```
-
-**3. Start the portal and the MEC** (two terminals):
-
-```bash
-../.venv/Scripts/python -m uvicorn portal.app:create_app --factory --host 0.0.0.0 --port 8001 --ssl-keyfile data/tls/key.pem --ssl-certfile data/tls/cert.pem
-```
-
-```bash
-../.venv/Scripts/python -m uvicorn mec_server.app:create_app --factory --host 0.0.0.0 --port 8000 --ssl-keyfile data/tls/key.pem --ssl-certfile data/tls/cert.pem
-```
-
-The teacher dashboard is at `https://<laptop-ip>:8001/`. Students sign in at
-`/student/login` (roll number + password) to see their attendance and appeal an
-absence. Set a password with `python -m portal.cli set-student-password <roll_no> <password>`
-(`demo` sets each demo student's password to their roll number). Teachers resolve
-appeals under **Appeals**, with the class photo and face boxes. The portal reads
-photos from the MEC at `ATTEND_MEC_URL` (default `https://localhost:8000`), trusting
-the cert in `ATTEND_MEC_CA`. In this prototype
-the portal also runs on the laptop. In the design it is a separate online
-service, and it shares no database with the MEC.
-
-**4. Enroll faces.** Download the models, then upload embeddings from
-`photos/<roll_no>/*.jpg`:
-
-```bash
-cd ../enrollment
-../.venv/Scripts/python fetch_models.py
-../.venv/Scripts/python enroll.py --photos photos --portal https://192.168.1.20:8001 --mec https://192.168.1.20:8000 --ca ../server/data/tls/cert.pem
-```
-
-Use `--dry-run` to check photo quality first. Delete the photos afterwards.
-
-**5. Phone.** Open `android/` in Android Studio and run it on your phone.
-See [android/README.md](android/README.md).
+`enrollment/enroll.py` remains for command-line enrollment from
+`photos/<roll_no>/` folders.
 
 ## Design and frontend
 
 The web portal and the Android app share one design language. See [DESIGN.md](DESIGN.md) for the system and [PRODUCT.md](PRODUCT.md) for the modules.
 
-- Web: server-rendered Jinja templates with a static stylesheet and a small script (`server/portal/templates`, `server/portal/static`). Modules whose backend is not built yet (Sessions, Students, Security, Evaluation, Settings) render clearly labelled **sample data** from `server/portal/preview_data.py`.
+- Web: server-rendered Jinja templates with a static stylesheet and a small script (`server/portal/templates`, `server/portal/static`).
 - Android: Jetpack Compose, Material 3 themed with the same tokens (`android/.../ui/theme`, `ui/components`, `ui/screens`).
 - Mobile design reference, viewable without Android tooling. From the repo root:
 

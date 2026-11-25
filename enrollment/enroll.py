@@ -22,16 +22,14 @@ import argparse
 import sys
 from pathlib import Path
 
-import cv2
 import httpx
 
 from face_pipeline import (
     MODELS_DIR,
     OnnxEmbedder,
     YuNetDetector,
-    align,
     build_template,
-    largest_face,
+    embed_photo,
 )
 
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
@@ -42,19 +40,11 @@ LOW_AGREEMENT = 0.5
 def embed_student(folder: Path, detector, embedder) -> tuple[list, list[str]]:
     embeddings, problems = [], []
     for img_path in sorted(p for p in folder.iterdir() if p.suffix.lower() in IMAGE_EXT):
-        image = cv2.imread(str(img_path))
-        if image is None:
-            problems.append(f"{img_path.name}: unreadable")
-            continue
-        faces = detector.detect(image)
-        face = largest_face(faces)
-        if face is None:
-            problems.append(f"{img_path.name}: no usable face")
-            continue
-        if len(faces) > 1:
-            problems.append(f"{img_path.name}: {len(faces)} faces, used the largest")
-        embeddings.append(embedder.embed(align(image, face.landmarks)))
-        del image  # keep pixel data short-lived
+        embedding, problem = embed_photo(img_path.read_bytes(), detector, embedder)
+        if problem:
+            problems.append(f"{img_path.name}: {problem}")
+        if embedding is not None:
+            embeddings.append(embedding)
     return embeddings, problems
 
 

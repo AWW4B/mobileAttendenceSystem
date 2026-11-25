@@ -45,6 +45,7 @@ fun LoginScreen(state: UiState, vm: AttendanceViewModel) {
     var password by rememberSaveable { mutableStateOf("") }
     var portalUrl by rememberSaveable { mutableStateOf(state.portalUrl) }
     var mecUrl by rememberSaveable { mutableStateOf(state.mecUrl) }
+    var serverCode by rememberSaveable { mutableStateOf(state.serverCode) }
     var showServers by rememberSaveable { mutableStateOf(false) }
     val focus = LocalFocusManager.current
     val fieldShape = RoundedCornerShape(12.dp)
@@ -54,7 +55,7 @@ fun LoginScreen(state: UiState, vm: AttendanceViewModel) {
     fun submit() {
         if (!canSubmit) return
         focus.clearFocus()
-        vm.login(username, password, portalUrl, mecUrl)
+        vm.login(username, password, portalUrl, mecUrl, serverCode)
         password = ""
     }
 
@@ -101,7 +102,13 @@ fun LoginScreen(state: UiState, vm: AttendanceViewModel) {
                 OutlinedTextField(
                     value = mecUrl, onValueChange = { mecUrl = it }, label = { Text("Campus server address") }, singleLine = true,
                     shape = fieldShape, modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+                )
+                OutlinedTextField(
+                    value = serverCode, onValueChange = { serverCode = it }, label = { Text("Server code") }, singleLine = true,
+                    supportingText = { Text("Printed when the server starts. Needed if this app was built on another computer.") },
+                    shape = fieldShape, modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
                 )
             }
         }
@@ -110,7 +117,7 @@ fun LoginScreen(state: UiState, vm: AttendanceViewModel) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Glyph(R.drawable.ic_lock, size = 18.dp, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
-                "Photos are processed on this phone and are never uploaded.",
+                "Faces are recognised on this phone. The class photo is kept encrypted on the campus server for 30 days as appeal evidence.",
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

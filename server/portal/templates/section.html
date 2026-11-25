@@ -2,6 +2,7 @@
 {% import "_macros.html" as m %}
 {% set nav = "overview" %}
 {% set LOW = 75 %}
+{% set live_follow = true %}
 {% block title %}{{ section.id }} · {{ super() }}{% endblock %}
 {% block crumbs %}
   <li><a href="/dashboard">Overview</a></li>
@@ -66,7 +67,7 @@
           {% for cs in sessions %}
             {% set parts = (cs.taken_at | when).split(" ") %}
             <th scope="col" class="session" data-session="{{ cs.session_id }}" data-date="{{ parts[0]|int }} {{ parts[1] }}" title="{{ cs.taken_at | when }}">
-              <span class="d">{{ parts[0]|int }} {{ parts[1] }}</span>
+              <a class="d" href="/sessions/{{ cs.session_id }}">{{ parts[0]|int }} {{ parts[1] }}</a>
               <span class="t">{{ parts[3] }}</span>
               <span class="t n">{{ cs.present }}/{{ cs.total }}</span>
             </th>

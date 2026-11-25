@@ -1,56 +1,51 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% set nav = "sessions" %}
-{% block title %}{{ s.section }} · {{ s.date }} · {{ super() }}{% endblock %}
+{% block title %}{{ s.section_id }} · {{ s.taken_at|when }} · {{ super() }}{% endblock %}
 {% block crumbs %}
   <li><a href="/sessions">Sessions</a></li>
-  <li><span aria-current="page">{{ s.section }}, {{ s.date }}</span></li>
+  <li><span aria-current="page">{{ s.section_id }}, {{ s.taken_at|when }}</span></li>
 {% endblock %}
 {% block content %}
 <div class="page-head">
   <div>
     <h1>{{ s.title }}</h1>
-    <p><span class="mono">{{ s.section }}</span> · {{ s.date }}, {{ s.time }} · {{ s.present }} of {{ s.total }} present</p>
+    <p><span class="mono">{{ s.section_id }}</span> · {{ s.taken_at|when }} · {{ s.present }} of {{ s.present + s.absent }} present</p>
   </div>
-  <div class="page-actions"><a class="btn" href="/sessions">{{ m.icon("arrow-left", "icon icon-sm") }}All sessions</a></div>
+  <div class="page-actions">
+    <a class="btn" href="/sessions">{{ m.icon("arrow-left", "icon icon-sm") }}All sessions</a>
+    <a class="btn" href="/sections/{{ s.section_id }}">Correct marks in register</a>
+    <a class="btn" href="/sessions/{{ s.session_id }}/export.csv">{{ m.icon("download", "icon icon-sm") }}Export CSV</a>
+  </div>
 </div>
 <div class="stack">
-  {{ m.preview_note() }}
-  <div class="two-col">
-    <section class="panel" aria-label="Results">
-      <div class="toolbar">
-        <div class="input-wrap">{{ m.icon("search") }}<input class="input" type="search" placeholder="Search name or roll number" aria-label="Search students" data-filter-table="results" autocomplete="off"></div>
-        <span class="muted small grow" style="text-align:right">Showing {{ results|length }} of {{ s.total }} in this preview</span>
-      </div>
-      <div class="table-wrap">
-        <table class="table" id="results">
-          <thead><tr><th scope="col">Roll no</th><th scope="col">Name</th><th scope="col">Result</th><th scope="col" class="num">Match</th><th scope="col">Source</th></tr></thead>
-          <tbody>
-          {% for r in results %}
-            <tr>
-              <td class="id">{{ r.roll }}</td><td class="name">{{ r.name }}</td>
-              <td>{{ m.chip(r.result, r.result|capitalize) }}</td>
-              <td class="num">{{ "%.2f"|format(r.score) if r.score is not none else "—" }}</td>
-              <td>{% if r.source == "manual" %}{{ m.chip("review plain", "Corrected by you") }}{% else %}<span class="muted">Face match</span>{% endif %}</td>
-            </tr>
-          {% endfor %}
-            <tr class="empty-row is-hidden"><td colspan="5">No students match your search.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-    <section class="panel" aria-label="Session details" style="align-self:start">
-      <div class="panel-head"><h2>Session</h2>{{ m.chip("present" if s.status == "Recorded" else "review", s.status) }}</div>
-      <dl class="kv panel-body">
-        <dt>Device</dt><dd>{{ s.device }}</dd>
-        <dt>Photos taken</dt><dd class="mono">{{ s.photos }}</dd>
-        <dt>Faces detected</dt><dd class="mono">{{ s.faces }}</dd>
-        <dt>Matched</dt><dd class="mono">{{ s.matched }}</dd>
-        <dt>Corrections</dt><dd class="mono">{{ s.corrections }}</dd>
-        <dt>Verified by</dt><dd>Campus server<div class="xs muted mono">receipt {{ s.id }}-7f3a91c2</div></dd>
-        <dt>Images stored</dt><dd>None. Photos were discarded on the phone.</dd>
-      </dl>
-    </section>
-  </div>
+  <section class="panel" aria-label="Results">
+    <div class="toolbar">
+      <div class="input-wrap">{{ m.icon("search") }}<input class="input" type="search" placeholder="Search name or roll number" aria-label="Search students" data-filter-table="results" autocomplete="off"></div>
+    </div>
+    <div class="table-wrap">
+      <table class="table" id="results">
+        <thead><tr><th scope="col">Roll no</th><th scope="col">Name</th><th scope="col">Status</th><th scope="col">Source</th></tr></thead>
+        <tbody>
+        {% for r in results %}
+          <tr>
+            <td class="id">{{ r.roll_no }}</td><td class="name">{{ r.name }}</td>
+            <td>{{ m.chip(r.status, r.status|capitalize) }}</td>
+            <td>{% if r.source == "manual" %}{{ m.chip("review plain", "Manual") }}{% else %}<span class="muted">Recognition</span>{% endif %}</td>
+          </tr>
+        {% endfor %}
+          <tr class="empty-row is-hidden"><td colspan="4">No students match your search.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="panel" aria-label="Class photo">
+    <div class="panel-head"><h2>Class photo</h2></div>
+    <div class="panel-body">
+      {% set photo_url = "/sessions/" ~ s.session_id ~ "/evidence.jpg" %}
+      {% include "_evidence.html" %}
+      {% if ev %}<p class="muted small">Solid boxes were matched to a student, dashed boxes were not.</p>{% endif %}
+    </div>
+  </section>
 </div>
 {% endblock %}

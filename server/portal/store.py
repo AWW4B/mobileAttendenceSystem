@@ -65,6 +65,12 @@ CREATE TABLE IF NOT EXISTS appeals (
     created_at    INTEGER NOT NULL,
     resolved_at   INTEGER
 );
+-- Students who left a section: a receipt queued before they left must still be accepted.
+CREATE TABLE IF NOT EXISTS removed_members (
+    section_id  TEXT NOT NULL,
+    pseudonym   TEXT NOT NULL,
+    PRIMARY KEY (section_id, pseudonym)
+);
 CREATE UNIQUE INDEX IF NOT EXISTS one_open_appeal ON appeals(session_id, roll_no) WHERE status = 'open';
 """
 
@@ -166,6 +172,9 @@ class PortalStore:
         """Delete a student. Returns the pseudonym so the caller can delete the MEC template."""
         pseudonym = self.pseudonym_for(roll_no)
         with self._conn() as c:
+            c.execute("""INSERT OR IGNORE INTO removed_members(section_id, pseudonym)
+                         SELECT ss.section_id, st.pseudonym FROM section_students ss
+                         JOIN students st ON st.roll_no = ss.roll_no WHERE st.roll_no = ?""", (roll_no,))
             c.execute("DELETE FROM students WHERE roll_no = ?", (roll_no,))
         return pseudonym
 
@@ -209,6 +218,51 @@ class PortalStore:
                    WHERE ss.section_id = ? ORDER BY st.roll_no""",
                 (section_id,),
             ).fetchall()
+
+    def create_section(self, section_id: str, title: str, teacher_id: int) -> bool:
+        try:
+            with self._conn() as c:
+                c.execute("INSERT INTO sections(id, title, teacher_id) VALUES (?,?,?)",
+                          (section_id, title, teacher_id))
+        except sqlite3.IntegrityError:
+            return False
+        return True
+
+    def teacher_students(self, teacher_id: int) -> list[dict]:
+        """Everyone in this teacher's sections, with attendance over those sections."""
+        with self._conn() as c:
+            members = c.execute(
+                """SELECT st.roll_no, st.name, st.pseudonym, st.pw_hash IS NOT NULL AS has_password, sec.id AS section
+                   FROM sections sec JOIN section_students ss ON ss.section_id = sec.id
+                   JOIN students st ON st.roll_no = ss.roll_no
+                   WHERE sec.teacher_id = ? ORDER BY st.roll_no, sec.id""", (teacher_id,)).fetchall()
+            pct = dict(c.execute(
+                """SELECT a.roll_no, CAST(ROUND(100.0 * SUM(a.status = 'present') / COUNT(*)) AS INTEGER)
+                   FROM attendance a JOIN class_sessions cs ON cs.session_id = a.session_id
+                   JOIN sections sec ON sec.id = cs.section_id
+                   WHERE sec.teacher_id = ? GROUP BY a.roll_no""", (teacher_id,)).fetchall())
+        out: dict[str, dict] = {}
+        for r in members:
+            s = out.setdefault(r["roll_no"], {**dict(r), "sections": [], "pct": pct.get(r["roll_no"])})
+            s["sections"].append(r["section"])
+        return list(out.values())
+
+    def in_other_teachers_section(self, roll_no: str, teacher_id: int) -> bool:
+        with self._conn() as c:
+            return c.execute(
+                """SELECT 1 FROM section_students ss JOIN sections sec ON sec.id = ss.section_id
+                   WHERE ss.roll_no = ? AND sec.teacher_id != ?""", (roll_no, teacher_id)).fetchone() is not None
+
+    def remove_from_section(self, section_id: str, roll_no: str) -> None:
+        with self._conn() as c:
+            c.execute("""INSERT OR IGNORE INTO removed_members(section_id, pseudonym)
+                         SELECT ?, pseudonym FROM students WHERE roll_no = ?""", (section_id, roll_no))
+            c.execute("DELETE FROM section_students WHERE section_id = ? AND roll_no = ?", (section_id, roll_no))
+
+    def removed_pseudonyms(self, section_id: str) -> set[str]:
+        with self._conn() as c:
+            return {r[0] for r in c.execute("SELECT pseudonym FROM removed_members WHERE section_id = ?",
+                                            (section_id,))}
 
     # ---- attendance -----------------------------------------------------
     def record_session(self, session_id: str, section_id: str, taken_at: int,
@@ -264,6 +318,40 @@ class PortalStore:
         with self._conn() as c:
             row = c.execute("SELECT section_id FROM class_sessions WHERE session_id = ?", (session_id,)).fetchone()
         return row["section_id"] if row else None
+
+    def teacher_sessions(self, teacher_id: int, session_id: str | None = None) -> list[sqlite3.Row]:
+        """This teacher's sessions, newest first, with counts (optionally just one)."""
+        with self._conn() as c:
+            return c.execute(
+                """SELECT cs.session_id, cs.section_id, sec.title, cs.taken_at, cs.evidence_sha256,
+                          COALESCE(SUM(a.status = 'present'), 0) AS present,
+                          COALESCE(SUM(a.status = 'absent'), 0) AS absent,
+                          COALESCE(SUM(a.source = 'manual' AND NOT EXISTS (
+                              SELECT 1 FROM appeals ap WHERE ap.session_id = a.session_id
+                              AND ap.roll_no = a.roll_no AND ap.status = 'accepted')), 0) AS corrections,
+                          (SELECT COUNT(*) FROM appeals ap WHERE ap.session_id = cs.session_id
+                           AND ap.status = 'accepted') AS accepted_appeals
+                   FROM class_sessions cs JOIN sections sec ON sec.id = cs.section_id
+                   LEFT JOIN attendance a ON a.session_id = cs.session_id
+                   WHERE sec.teacher_id = ? AND (? IS NULL OR cs.session_id = ?)
+                   GROUP BY cs.session_id ORDER BY cs.taken_at DESC""",
+                (teacher_id, session_id, session_id),
+            ).fetchall()
+
+    def session_rows(self, session_id: str) -> list[sqlite3.Row]:
+        with self._conn() as c:
+            return c.execute(
+                """SELECT st.roll_no, st.name, st.pseudonym, a.status, a.source
+                   FROM attendance a JOIN students st ON st.roll_no = a.roll_no
+                   WHERE a.session_id = ? ORDER BY st.roll_no""", (session_id,)).fetchall()
+
+    def latest_session(self, teacher_id: int) -> sqlite3.Row | None:
+        """The most recently *received* session (what the live view watches)."""
+        with self._conn() as c:
+            return c.execute(
+                """SELECT cs.session_id, sec.title FROM class_sessions cs
+                   JOIN sections sec ON sec.id = cs.section_id WHERE sec.teacher_id = ?
+                   ORDER BY cs.received_at DESC, cs.rowid DESC LIMIT 1""", (teacher_id,)).fetchone()
 
     # ---- appeals --------------------------------------------------------
     def student_sessions(self, roll_no: str) -> list[sqlite3.Row]:

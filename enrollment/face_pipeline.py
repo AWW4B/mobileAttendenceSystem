@@ -127,6 +127,54 @@ def largest_face(faces: list[Face], min_px: int = CONTRACT["detector"]["min_face
     return max(ok, key=lambda f: f.area) if ok else None
 
 
+MAX_LONG_EDGE = 1280
+
+
+def _shrink(image: np.ndarray, edge: int) -> np.ndarray:
+    scale = edge / max(image.shape[:2])
+    return image if scale >= 1 else cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+
+
+def decode_image(data: bytes) -> np.ndarray | None:
+    """Any format OpenCV reads, EXIF orientation applied (IMREAD_COLOR does that), long edge capped."""
+    try:
+        image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    except cv2.error:  # empty buffer, absurd dimensions
+        return None
+    return None if image is None else _shrink(image, MAX_LONG_EDGE)
+
+
+def detect_faces(detector: Detector, image: np.ndarray) -> list[Face]:
+    """Faces in image coordinates. When none is usable, retry with a padded border
+    (tightly cropped faces) and at smaller scales (faces too large for the detector)."""
+    for edge in (None, 640, 320):
+        scaled = image if edge is None else _shrink(image, edge)
+        if edge is not None and scaled is image:
+            continue
+        s = scaled.shape[1] / image.shape[1]
+        for pad in (0, max(scaled.shape[:2]) // 2):
+            canvas = cv2.copyMakeBorder(scaled, pad, pad, pad, pad, cv2.BORDER_CONSTANT) if pad else scaled
+            faces = [Face(box=((f.box[0] - pad) / s, (f.box[1] - pad) / s, f.box[2] / s, f.box[3] / s),
+                          landmarks=(f.landmarks - pad) / s, score=f.score)
+                     for f in detector.detect(canvas)]
+            if largest_face(faces) is not None:
+                return faces
+    return []
+
+
+def embed_photo(data: bytes, detector: Detector, embedder: Embedder) -> tuple[np.ndarray | None, str | None]:
+    """One enrollment photo -> (embedding or None, problem or None). Nothing is written to disk."""
+    image = decode_image(data)
+    if image is None:
+        return None, "unreadable image (unsupported format or damaged file)"
+    faces = detect_faces(detector, image)
+    face = largest_face(faces)
+    if face is None:
+        return None, "no usable face"
+    note = f"{len(faces)} faces, used the largest" if len(faces) > 1 else None
+    return embedder.embed(align(image, face.landmarks)), note
+
+
 @dataclass
 class Template:
     vector: np.ndarray

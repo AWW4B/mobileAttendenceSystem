@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
 {% set nav = "overview" %}
+{% set live_follow = true %}
 {% block title %}Overview · {{ super() }}{% endblock %}
 {% block crumbs %}<li><span aria-current="page">Overview</span></li>{% endblock %}
 {% block content %}
@@ -40,9 +41,9 @@
 <section class="panel">
   <div class="empty">
     {{ m.icon("sections") }}
-    <h2>No sections assigned yet</h2>
-    <p>Sections are assigned by an administrator. Once yours appear here, you can take attendance in the mobile app and review it on this page.</p>
-    <p class="muted small">Administrators: <code>python -m portal.cli add-section</code></p>
+    <h2>No sections yet</h2>
+    <p>Create a section and add its students, then take attendance in the mobile app and review it here.</p>
+    <a class="btn btn-primary" href="/students">Create a section</a>
   </div>
 </section>
 {% endif %}

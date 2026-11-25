@@ -41,8 +41,7 @@ class FacePipeline(context: Context) : Closeable {
                 try {
                     embedder.embed(aligned).also { onProgress("Matching", i + 1, faces.size) }
                 } finally {
-                    aligned.eraseColor(0)
-                    aligned.recycle()
+                    aligned.wipe()
                 }
             }
         }
@@ -57,4 +56,11 @@ class FacePipeline(context: Context) : Closeable {
         detector.close()
         if (embedderLazy.isInitialized()) embedder.close()
     }
+}
+
+/** Zero the pixels, then free them. Camera and rotated bitmaps can be immutable, and erasing those throws. */
+// shortcut: immutable pixels are only freed, not zeroed; copy to a mutable bitmap at capture if that matters.
+fun Bitmap.wipe() {
+    if (isMutable) eraseColor(0)
+    recycle()
 }
